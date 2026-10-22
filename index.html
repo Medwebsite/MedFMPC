@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MedFMPC — Cours, plannings et actualités</title>
+  <meta name="description" content="Espace étudiant de la Faculté de Médecine et de Pharmacie de Casablanca : leçons classées par année, plannings et actualités." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f766e'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Aller au contenu</a>
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="#/" class="brand" aria-label="Accueil">
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="currentColor"/><path d="M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z" fill="#fff"/></svg>
+        </span>
+        <span class="brand-text"><strong id="brand-name">MedFMPC</strong><small id="brand-fac">FMPC</small></span>
+      </a>
+
+      <nav class="nav" id="nav" aria-label="Navigation principale">
+        <a href="#/" data-route="accueil">Accueil</a>
+        <a href="#/actualites" data-route="actualites">Actualités</a>
+        <a href="#/planning" data-route="planning">Planning</a>
+        <a href="#/lecons" data-route="lecons">Leçons</a>
+        <a href="#/admin" data-route="admin" id="nav-admin" hidden>Espace admin</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" id="btn-login">Connexion</button>
+        <div class="user-chip" id="user-chip" hidden>
+          <span class="avatar" id="user-avatar">?</span>
+          <span class="user-meta"><b id="user-name"></b><small id="user-role"></small></span>
+          <button class="btn btn-ghost btn-sm" id="btn-logout" title="Se déconnecter">Sortir</button>
+        </div>
+        <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="demo-banner" id="demo-banner" hidden>
+    <div class="container">
+      <b>Mode démo</b> — données d'exemple. Ajoute tes clés Supabase dans <code>js/config.js</code> pour mettre le site en ligne.
+    </div>
+  </div>
+
+  <main id="main" class="container main" tabindex="-1">
+    <div class="loading">Chargement…</div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span id="footer-fac">Faculté de Médecine et de Pharmacie de Casablanca</span>
+      <span>Site étudiant non officiel · <a href="#/confidentialite">Confidentialité</a></span>
+    </div>
+  </footer>
+
+  <!-- Fenêtre modale générique -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <h3 id="modal-title"></h3>
+        <div class="modal-head-actions" id="modal-actions"></div>
+        <button class="icon-btn" data-close aria-label="Fermer">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

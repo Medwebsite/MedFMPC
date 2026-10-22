@@ -38,7 +38,7 @@
   const defaultSem = (a) => (a.semestres.find((x) => x.drive) || a.semestres[0]).code;
   const isEditor = () => { const u = Store.user(); return !!u && (u.role === "admin" || u.role === "editor"); };
   const isAdmin = () => { const u = Store.user(); return !!u && u.role === "admin"; };
-  const roleLabel = (r) => ({ admin: "Admin principal", editor: "Éditeur", user: "Lecture seule" }[r] || r);
+  const roleLabel = (r) => ({ admin: "Admin principal", editor: "Éditeur", user: "Étudiant" }[r] || r);
 
   function toast(msg, err = false) {
     const t = $("#toast");
@@ -65,6 +65,11 @@
     book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M19 19v2H6"/></svg>',
     steth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3v5a4 4 0 0 0 8 0V3"/><path d="M10 12v3a5 5 0 0 0 10 0v-2"/><circle cx="20" cy="11" r="2"/></svg>',
     pill: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5" transform="rotate(-35 12 12)"/><path d="M9.5 8.3l5 7.4" /></svg>',
+    pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/></svg>',
+    bank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>',
     users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
@@ -300,25 +305,33 @@
     };
   }
 
-  function loginForm() {
-    const body = openModal("Espace éditeurs", `
-      <div class="tabs"><button class="active" data-tab="in">Connexion</button><button data-tab="up">Créer un compte</button></div>
-      ${Store.demo ? '<p class="small muted">Mode démo : n\'importe quel email/mot de passe te connecte en tant qu\'admin.</p>' : '<p class="small muted">Les visiteurs n\'ont pas besoin de compte. Après inscription, l\'admin principal doit te nommer « éditeur » pour publier.</p>'}
+  function loginForm(start = "in") {
+    const body = openModal(start === "up" ? "Créer un compte" : "Connexion", `
+      <div class="tabs"><button data-tab="in" class="${start === "in" ? "active" : ""}">Connexion</button><button data-tab="up" class="${start === "up" ? "active" : ""}">Créer un compte</button></div>
+      ${Store.demo ? '<p class="small muted">Aperçu : n\'importe quel email/mot de passe te connecte en tant qu\'admin.</p>' : '<p class="small muted">Compte gratuit, réservé aux étudiants. Après inscription, l\'admin peut te nommer « éditeur » pour publier.</p>'}
       <form class="form" novalidate>
-        <div class="field" data-only="up" hidden><label for="a-nom">Nom affiché</label><input id="a-nom" class="input" name="nom" placeholder="ex : Délégué 2A" maxlength="60"></div>
+        <div class="form-row" data-only="up" ${start === "up" ? "" : "hidden"}>
+          <div class="field"><label for="a-prenom">Prénom</label><input id="a-prenom" class="input" name="prenom" maxlength="40" autocomplete="given-name"></div>
+          <div class="field"><label for="a-nom">Nom</label><input id="a-nom" class="input" name="nom" maxlength="40" autocomplete="family-name"></div>
+        </div>
         <div class="field"><label for="a-email">Email</label><input id="a-email" class="input" type="email" name="email" required autocomplete="email"></div>
-        <div class="field"><label for="a-pw">Mot de passe</label><input id="a-pw" class="input" type="password" name="pw" required minlength="6" autocomplete="current-password"></div>
-        <div class="form-actions"><button type="submit" class="btn" style="width:100%">Se connecter</button></div>
+        <div class="field"><label for="a-pw">Mot de passe</label><input id="a-pw" class="input" type="password" name="pw" required minlength="6" autocomplete="${start === "up" ? "new-password" : "current-password"}"></div>
+        <div class="form-actions" style="justify-content:space-between;align-items:center">
+          <button type="button" class="link-btn" data-only="in" ${start === "up" ? "hidden" : ""} id="forgot">Mot de passe oublié ?</button>
+          <button type="submit" class="btn">${start === "up" ? "Créer mon compte" : "Se connecter"}</button>
+        </div>
       </form>`);
-    let mode = "in";
+    let mode = start;
     const form = $("form", body);
     $$(".tabs button", body).forEach((b) => b.onclick = () => {
       mode = b.dataset.tab;
       $$(".tabs button", body).forEach((x) => x.classList.toggle("active", x === b));
       $$("[data-only=up]", body).forEach((x) => (x.hidden = mode !== "up"));
+      $$("[data-only=in]", body).forEach((x) => (x.hidden = mode !== "in"));
       $("button[type=submit]", form).textContent = mode === "up" ? "Créer mon compte" : "Se connecter";
       $("#a-pw").autocomplete = mode === "up" ? "new-password" : "current-password";
     });
+    $("#forgot", body).onclick = () => forgotForm(form.email.value.trim());
     form.onsubmit = (e) => {
       e.preventDefault();
       withBusy(form, async () => {
@@ -326,7 +339,9 @@
         if (!email || !pw) throw new Error("Email et mot de passe requis.");
         if (mode === "up") {
           if (pw.length < 6) throw new Error("Le mot de passe doit contenir au moins 6 caractères.");
-          const r = await Store.signUp(email, pw, form.nom.value.trim());
+          const prenom = form.prenom.value.trim(), nomF = form.nom.value.trim();
+          if (!prenom || !nomF) throw new Error("Entre ton prénom et ton nom.");
+          const r = await Store.signUp(email, pw, `${prenom} ${nomF}`);
           closeModal();
           if (r.confirm) { toast("Compte créé ! Confirme ton email puis connecte-toi."); return; }
           toast("Compte créé ✓");
@@ -336,6 +351,70 @@
         }
       });
     };
+  }
+
+  function forgotForm(email = "") {
+    const body = openModal("Mot de passe oublié", `
+      <p class="small muted">Entre ton email : tu recevras un lien pour choisir un nouveau mot de passe. Personne, pas même l'administrateur, ne peut voir ton ancien mot de passe.</p>
+      <form class="form" novalidate>
+        <div class="field"><label for="fp-email">Email</label><input id="fp-email" class="input" type="email" name="email" required value="${esc(email)}" autocomplete="email"></div>
+        <div class="form-actions"><button type="button" class="btn btn-ghost" data-close>Annuler</button><button type="submit" class="btn">Envoyer le lien</button></div>
+      </form>`);
+    const form = $("form", body);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      withBusy(form, async () => {
+        const em = form.email.value.trim();
+        if (!em) throw new Error("Entre ton email.");
+        await Store.resetPassword(em);
+        closeModal(); toast("Lien envoyé ! Regarde ta boîte mail.");
+      });
+    };
+  }
+
+  function newPasswordForm() {
+    const body = openModal("Nouveau mot de passe", `
+      <p class="small muted">Choisis un nouveau mot de passe pour ton compte.</p>
+      <form class="form" novalidate>
+        <div class="field"><label for="np-pw">Nouveau mot de passe</label><input id="np-pw" class="input" type="password" name="pw" required minlength="6" autocomplete="new-password"></div>
+        <div class="field"><label for="np-pw2">Confirme</label><input id="np-pw2" class="input" type="password" name="pw2" required minlength="6" autocomplete="new-password"></div>
+        <div class="form-actions"><button type="submit" class="btn">Enregistrer</button></div>
+      </form>`);
+    const form = $("form", body);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      withBusy(form, async () => {
+        const pw = form.pw.value, pw2 = form.pw2.value;
+        if (pw.length < 6) throw new Error("Au moins 6 caractères.");
+        if (pw !== pw2) throw new Error("Les deux mots de passe ne correspondent pas.");
+        await Store.updatePassword(pw);
+        closeModal(); toast("Mot de passe modifié ✓");
+      });
+    };
+  }
+
+  function pageConfidentialite() {
+    main.innerHTML = `<div style="max-width:760px">
+      <h1>Confidentialité</h1>
+      <p class="muted">Ce que le site ${esc(CFG.nomSite)} enregistre, et ce qu'il n'enregistre pas.</p>
+      <div class="card card-pad" style="margin-top:14px">
+        <h3>Ce qui est enregistré</h3>
+        <ul>
+          <li>Ton <b>email</b> et le <b>nom affiché</b> que tu choisis, pour créer ton compte.</li>
+          <li>La <b>date de création</b> du compte et la <b>date de dernière connexion</b>.</li>
+          <li>Le <b>contenu que tu publies</b> si tu es éditeur (actualités, plannings, leçons).</li>
+          <li>Un <b>comptage anonyme des visites</b> (nombre de pages vues), sans identifier qui que ce soit.</li>
+        </ul>
+        <h3>Ce qui n'est PAS enregistré</h3>
+        <ul>
+          <li>Ton <b>mot de passe</b> n'est jamais lisible : il est chiffré, personne ne peut le voir.</li>
+          <li>Ta <b>position</b> ou ta localisation précise.</li>
+          <li>Aucune donnée n'est vendue ni partagée avec des tiers.</li>
+        </ul>
+        <h3>Tes droits</h3>
+        <p>Tu peux demander à tout moment la suppression de ton compte et de tes données à l'administrateur du site. Conformément à la loi 09-08 (Maroc) sur la protection des données personnelles.</p>
+      </div>
+    </div>`;
   }
 
   /* --------------------------- composants ----------------------------- */
@@ -608,9 +687,9 @@
       </section>`;
     const filter = $("#ex-filter");
     if (filter) filter.addEventListener("input", (e) => {
-      const q = e.target.value.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const q = e.target.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       $$("#ex-items > li").forEach((li) => {
-        const n = (li.dataset.name || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+        const n = (li.dataset.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         li.hidden = !!q && !n.includes(q);
       });
     });
@@ -700,33 +779,98 @@
     const box = $("#admin-tab");
 
     if (tab === "membres" && isAdmin()) {
-      const members = await Store.members();
+      const [members, stats] = await Promise.all([Store.members(), Store.statsVisites()]);
+      const info = (m) => window.accesInfo(m.email, m.role, m);
+      const attente = members.filter((m) => m.paiement_statut === "en_attente" && !info(m).univ && !(info(m).acces && m.role !== "user"));
+      const payes = members.filter((m) => m.role === "user" && !info(m).univ && info(m).acces).length;
+      const order = (m) => (m.paiement_statut === "en_attente" ? 0 : 1);
+      members.sort((x, y) => order(x) - order(y));
+      const fin = window.finAnneeUniv();
       box.innerHTML = `
-        <p class="small muted">Les personnes créent leur compte via « Connexion → Créer un compte », puis tu leur donnes le rôle <b>Éditeur</b> ici. Les visiteurs n'ont besoin d'aucun compte pour voir et télécharger.</p>
+        <div class="grid stats-4" style="margin-bottom:16px">
+          <div class="card card-pad"><small class="muted">Comptes</small><div class="stat-big">${members.length}</div><small class="muted">${members.filter((m) => m.actif !== false).length} actifs</small></div>
+          <div class="card card-pad ${attente.length ? "stat-alert" : ""}"><small class="muted">Paiements à vérifier</small><div class="stat-big">${attente.length}</div><small class="muted">${payes} accès payés en cours</small></div>
+          <div class="card card-pad"><small class="muted">Visites (7 jours)</small><div class="stat-big">${stats.semaine ?? 0}</div><small class="muted">${stats.jour ?? 0} aujourd'hui</small></div>
+          <div class="card card-pad"><small class="muted">Visites (total)</small><div class="stat-big">${stats.total ?? 0}</div><small class="muted">pages vues</small></div>
+        </div>
+        <p class="small muted">Les emails <b>@${esc(CFG.domaineGratuit || "etu.univh2c.ma")}</b> ont accès gratuitement. Pour les autres, vérifie la preuve puis clique sur <b>Activer</b> : l'accès dure jusqu'au <b>${fmtJour(fin)}</b>. Les mots de passe ne sont jamais visibles.</p>
         <div class="card table-wrap"><table class="tbl">
-          <thead><tr><th>Nom</th><th>Email</th><th>Inscrit</th><th>Rôle</th></tr></thead>
-          <tbody>${members.map((m) => `<tr>
-            <td><b>${esc(m.nom || "—")}</b></td><td>${esc(m.email)}</td><td class="muted">${fmtDate(m.created_at)}</td>
-            <td>${m.id === u.id || m.role === "admin" ? `<span class="badge b-pin">${roleLabel(m.role)}</span>` : `
-              <select class="input" data-role="${esc(m.id)}">
-                <option value="user" ${m.role === "user" ? "selected" : ""}>Lecture seule</option>
-                <option value="editor" ${m.role === "editor" ? "selected" : ""}>Éditeur</option>
-              </select>`}</td></tr>`).join("")}</tbody>
+          <thead><tr><th>Nom</th><th>Email</th><th>Dernière connexion</th><th>Accès aux cours</th><th>Rôle</th><th>Compte</th></tr></thead>
+          <tbody>${members.map((m) => {
+            const ai = info(m); const self = m.id === u.id || m.role === "admin";
+            let acc;
+            if (m.role === "admin" || m.role === "editor") acc = `<span class="badge b-Cours">Inclus</span>`;
+            else if (ai.univ) acc = `<span class="badge b-Cours">Gratuit · FMPC</span>`;
+            else if (ai.acces) acc = `<span class="badge b-Info">Payé · jusqu'au ${esc(fmtJour(m.acces_jusqu))}</span> <button class="link-btn" data-refuse="${esc(m.id)}">Retirer</button>`;
+            else if (m.paiement_statut === "en_attente") acc = `<span class="badge b-Examen">À vérifier · ${esc(modeLabel(m.paiement_mode))}</span>
+              <div class="row-actions" style="margin-top:6px">
+                ${m.paiement_preuve ? `<button class="btn btn-sm btn-ghost" data-preuve="${esc(m.paiement_preuve)}">${I.eye} Preuve</button>` : ""}
+                <button class="btn btn-sm" data-activer="${esc(m.id)}">Activer</button>
+                <button class="btn btn-sm btn-danger" data-refuse="${esc(m.id)}">Refuser</button></div>`;
+            else acc = `<span class="badge">${m.paiement_statut === "refuse" ? "Refusé" : "Non payé"}</span> <button class="link-btn" data-activer="${esc(m.id)}">Activer</button>`;
+            return `<tr${m.actif === false ? ' style="opacity:.5"' : ""}>
+              <td><b>${esc(m.nom || "—")}</b><div class="small muted">inscrit ${fmtDate(m.created_at)}</div></td>
+              <td class="small">${esc(m.email)}</td>
+              <td class="muted small">${m.last_seen ? timeAgo(m.last_seen) : "jamais"}</td>
+              <td>${acc}</td>
+              <td>${self ? `<span class="badge b-pin">${roleLabel(m.role)}</span>` : `
+                <select class="input" data-role="${esc(m.id)}">
+                  <option value="user" ${m.role === "user" ? "selected" : ""}>Étudiant</option>
+                  <option value="editor" ${m.role === "editor" ? "selected" : ""}>Éditeur</option>
+                </select>`}</td>
+              <td>${self ? "—" : `<button class="btn btn-sm ${m.actif === false ? "btn-soft" : "btn-ghost"}" data-actif="${esc(m.id)}" data-val="${m.actif === false ? "1" : "0"}">${m.actif === false ? "Réactiver" : "Suspendre"}</button>`}</td>
+            </tr>`;
+          }).join("")}</tbody>
         </table></div>`;
-      $$("[data-role]", box).forEach((s) => (s.onchange = async () => {
-        try { await Store.setRole(s.dataset.role, s.value); toast("Rôle mis à jour ✓"); }
+      $$("[data-role]", box).forEach((sel) => (sel.onchange = async () => {
+        try { await Store.setRole(sel.dataset.role, sel.value); toast("Rôle mis à jour ✓"); }
         catch (e) { toast(e.message, true); }
+      }));
+      $$("[data-actif]", box).forEach((b) => (b.onclick = async () => {
+        try { await Store.setActif(b.dataset.actif, b.dataset.val === "1"); toast("Compte mis à jour ✓"); route(); }
+        catch (e) { toast(e.message, true); }
+      }));
+      $$("[data-activer]", box).forEach((b) => (b.onclick = async () => {
+        if (!(await confirmBox(`Activer l'accès aux cours jusqu'au ${fmtJour(fin)} ?`, "Activer"))) return;
+        try { await Store.activerAcces(b.dataset.activer, fin); toast("Accès activé ✓"); route(); }
+        catch (e) { toast(e.message, true); }
+      }));
+      $$("[data-refuse]", box).forEach((b) => (b.onclick = async () => {
+        if (!(await confirmBox("Refuser / retirer l'accès payant de ce compte ?", "Confirmer"))) return;
+        try { await Store.refuserAcces(b.dataset.refuse); toast("Accès retiré"); route(); }
+        catch (e) { toast(e.message, true); }
+      }));
+      $$("[data-preuve]", box).forEach((b) => (b.onclick = async () => {
+        try {
+          const url = await Store.preuveUrl(b.dataset.preuve);
+          const isPdf = /\.pdf$/i.test(b.dataset.preuve);
+          previewFile({ title: "Preuve de paiement", url, type: isPdf ? "pdf" : "image", open: url });
+        } catch (e) { toast(e.message, true); }
       }));
       return;
     }
 
     if (tab === "drive" && isAdmin()) {
       box.innerHTML = `
-        <p class="small muted">Ces liens se modifient dans <code>js/config.js</code> (champ <code>drive</code> de chaque semestre). ${Drive.live() ? "Clé API Google : <span class='ok'>configurée</span> — le Drive est lu en direct." : `Clé API Google : <span class='ko'>absente</span> — le site utilise la copie du Drive du ${esc(Drive.snapshotDate())}.`}</p>
+        <p class="small muted">Les semestres se relient dans <code>js/config.js</code> (champ <code>drive</code> de chaque semestre).</p>
         <div class="grid grid-2">${CFG.filieres.map((f) => `<div class="card card-pad"><h3>${esc(f.nom)}</h3><div class="status-list">
           ${f.annees.flatMap((a) => a.semestres.map((x) => `<div><span>${esc(a.label)} · ${x.code}</span>${x.drive ? `<a class="ok" href="${Drive.folderUrl(x.drive)}" target="_blank" rel="noopener">lié ✓</a>` : `<span class="ko">non lié</span>`}</div>`)).join("")}
         </div></div>`).join("")}</div>
+        <div class="card card-pad" style="margin-top:16px">
+          <h3>Mettre à jour la liste des cours</h3>
+          <p class="small muted">La liste des cours est protégée dans ta base : seuls les comptes qui ont accès la voient. Quand Claude te donne un nouveau fichier <code>drive-import.json</code>, importe-le ici. ${Drive.snapshotDate() ? `Dernière mise à jour : <b>${esc(Drive.snapshotDate())}</b>.` : "Aucune liste importée pour l'instant."}</p>
+          <label class="btn btn-soft" style="width:max-content">${I.dl} Importer drive-import.json<input type="file" id="drive-import" accept=".json,application/json" hidden></label>
+        </div>
         ${Store.demo ? `<p style="margin-top:16px"><button class="btn btn-ghost btn-sm" data-action="reset-demo">Réinitialiser les données de démo</button></p>` : ""}`;
+      $("#drive-import").onchange = async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try {
+          const json = JSON.parse(await f.text());
+          if (!json.semestres || !json.stats) throw new Error("Ce fichier n'est pas un drive-import.json valide.");
+          await Store.importSnapshot(json);
+          toast(`Liste importée ✓ (${json.stats.files} fichiers)`); route();
+        } catch (err) { toast(err.message, true); }
+      };
       return;
     }
 
@@ -753,6 +897,315 @@
   }
 
   /* ------------------------------ routeur ----------------------------- */
+  /* ---------------- Accueil public + inscription (connexion obligatoire) --------------- */
+  function siteStats() {
+    let files = 0, sems = 0, modules = 0;
+    CFG.filieres.forEach((f) => f.annees.forEach((a) => a.semestres.forEach((x) => {
+      if (!x.drive) return;
+      sems++;
+      const n = Drive.countFiles(x.drive); if (n) files += n;
+      modules += Drive.rootItems(x.drive)
+        .filter((it) => it[2] && !/calendrier|diffusion|exam|planning|emploi du temps|annonce|\bSN\b/i.test(it[1])).length;
+    })));
+    return { files, sems, modules };
+  }
+  const ECG_PATH = "M0 60 H220 L250 60 L262 48 L274 60 H300 L318 60 L330 14 L344 106 L358 36 L370 60 H560 L590 60 L602 50 L614 60 H640 L658 60 L670 14 L684 106 L698 36 L710 60 H900 L930 60 L942 48 L954 60 H980 L998 60 L1010 14 L1024 106 L1038 36 L1050 60 H1200";
+
+  function landingPage() {
+    const st = siteStats();
+    const fmt = (n) => n >= 100 ? (Math.floor(n / 100) * 100).toLocaleString("fr-FR") + "+" : String(n);
+    main.innerHTML = `
+      <section class="land-hero">
+        <div class="land-grid" aria-hidden="true"></div>
+        <svg class="ecg" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true"><path class="ecg-base" d="${ECG_PATH}"/><path class="ecg-pulse" d="${ECG_PATH}"/></svg>
+        <div class="land-content">
+          <span class="land-badge"><i></i> ${esc(CFG.faculte)}</span>
+          <h1>Tes cours de médecine,<br><em>organisés semestre par semestre.</em></h1>
+          <p>Cours, résumés, QCM, plannings et annonces de la promo, réunis sur une seule plateforme réservée aux étudiants.</p>
+          <div class="land-cta">
+            <a class="btn btn-lg btn-light" href="#/commencer">Commencer <span aria-hidden="true">→</span></a>
+            <a class="btn btn-lg btn-outline-light" href="#/connexion">J'ai déjà un compte</a>
+          </div>
+          <dl class="land-stats" id="land-stats" ${st.files ? "" : "hidden"}>
+            <div><dt data-k="files">${fmt(st.files)}</dt><dd>fichiers de cours</dd></div>
+            <div><dt data-k="modules">${st.modules}</dt><dd>modules</dd></div>
+            <div><dt data-k="sems">${st.sems}</dt><dd>semestres en ligne</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="land-features">
+          <div class="feat"><span class="ico" style="background:var(--primary-50);color:var(--primary)">${I.book}</span><b>Cours par semestre</b><p>Anatomie, physiologie, sémiologie… classés comme le Drive de la promo.</p></div>
+          <div class="feat"><span class="ico" style="background:var(--info-50);color:var(--info)">${I.search}</span><b>Recherche instantanée</b><p>Tape « thalamus » ou « ECG » et retrouve le bon fichier en une seconde.</p></div>
+          <div class="feat"><span class="ico" style="background:var(--warn-50);color:var(--warn)">${I.cal}</span><b>Plannings à jour</b><p>Emplois du temps, examens et TP publiés par les délégués.</p></div>
+          <div class="feat"><span class="ico" style="background:var(--accent-50);color:var(--accent)">${I.news}</span><b>Actualités de la fac</b><p>Annonces importantes épinglées, pour ne rien rater.</p></div>
+        </div>
+      </section>
+
+      <section class="section land-steps-wrap">
+        <h2>Trois étapes pour commencer</h2>
+        <ol class="land-steps">
+          <li><b>Crée ton compte</b><span>Prénom, nom, email et mot de passe.</span></li>
+          <li><b>Confirme ton email</b><span>Clique sur le lien reçu dans ta boîte mail.</span></li>
+          <li><b>Accède à tes cours</b><span>Gratuit avec ton email @${esc(CFG.domaineGratuit || "etu.univh2c.ma")}.</span></li>
+        </ol>
+        <a class="btn btn-lg" href="#/commencer">Commencer <span aria-hidden="true">→</span></a>
+      </section>`;
+    if (Store.publicStats) Store.publicStats().then((ps) => {
+      const box = $("#land-stats"); if (!ps || !box) return;
+      $('[data-k="files"]', box).textContent = fmt(ps.files || 0);
+      $('[data-k="modules"]', box).textContent = ps.modules || 0;
+      $('[data-k="sems"]', box).textContent = ps.sems || 0;
+      box.hidden = false;
+    }).catch(() => {});
+  }
+
+  function authPage(mode) {
+    main.innerHTML = `
+      <div class="auth-page">
+        <aside class="auth-side">
+          <svg class="ecg ecg-side" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true"><path class="ecg-base" d="${ECG_PATH}"/><path class="ecg-pulse" d="${ECG_PATH}"/></svg>
+          <span class="auth-pulse">${I.pulse}</span>
+          <h2>Rejoins la plateforme de la promo</h2>
+          <ul>
+            <li>${I.check} Tous les cours du S2 et du S3, et bientôt plus</li>
+            <li>${I.check} Recherche dans des centaines de fichiers</li>
+            <li>${I.check} Plannings et annonces en temps réel</li>
+            <li>${I.check} Gratuit pour les étudiants FMPC (@${esc(CFG.domaineGratuit || "etu.univh2c.ma")})</li>
+          </ul>
+          <a class="auth-back" href="#/">← Retour</a>
+        </aside>
+        <div class="card auth-card" id="auth-card"></div>
+      </div>`;
+    renderAuthCard(mode);
+  }
+
+  function renderAuthCard(mode) {
+    const card = $("#auth-card");
+    const isUp = mode === "up";
+    card.innerHTML = `
+      <div class="seg auth-seg" role="tablist">
+        <a role="tab" href="#/commencer" class="${isUp ? "active" : ""}">Créer un compte</a>
+        <a role="tab" href="#/connexion" class="${!isUp ? "active" : ""}">Connexion</a>
+      </div>
+      <h1>${isUp ? "Crée ton compte" : "Bon retour !"}</h1>
+      <p class="muted small">${isUp ? "Ça prend moins d'une minute." : "Connecte-toi pour accéder à tes cours."}</p>
+      ${isUp ? `<div class="free-note">${I.check}<span><b>Gratuit</b> avec ton email <b>@${esc(CFG.domaineGratuit || "etu.univh2c.ma")}</b>. Avec un autre email, l'accès coûte ${esc(prixTexte())} par année universitaire.</span></div>` : ""}
+      ${Store.demo ? '<p class="small muted"><b>Aperçu :</b> n\'importe quel email/mot de passe fonctionne.</p>' : ""}
+      <form class="form" novalidate>
+        ${isUp ? `<div class="form-row">
+          <div class="field"><label for="s-prenom">Prénom</label><input id="s-prenom" class="input" name="prenom" required maxlength="40" autocomplete="given-name" placeholder="ex : Yahya"></div>
+          <div class="field"><label for="s-nom">Nom</label><input id="s-nom" class="input" name="nom" required maxlength="40" autocomplete="family-name" placeholder="ex : Moujahid"></div>
+        </div>` : ""}
+        <div class="field"><label for="s-email">Email</label><input id="s-email" class="input" type="email" name="email" required autocomplete="email" placeholder="prenom.nom@exemple.com"></div>
+        <div class="field"><label for="s-pw">Mot de passe</label><input id="s-pw" class="input" type="password" name="pw" required minlength="6" autocomplete="${isUp ? "new-password" : "current-password"}" placeholder="${isUp ? "6 caractères minimum" : ""}"></div>
+        ${isUp ? `<div class="field"><label for="s-pw2">Confirme le mot de passe</label><input id="s-pw2" class="input" type="password" name="pw2" required minlength="6" autocomplete="new-password"></div>
+        <label class="check small"><input type="checkbox" name="accept" required> J'accepte la <a href="#/confidentialite" target="_blank">politique de confidentialité</a></label>` : ""}
+        <button type="submit" class="btn btn-lg" style="width:100%">${isUp ? "Créer mon compte" : "Se connecter"}</button>
+        ${!isUp ? `<button type="button" class="link-btn" id="s-forgot" style="justify-self:center">Mot de passe oublié ?</button>` : ""}
+      </form>`;
+    const form = $("form", card);
+    const fg = $("#s-forgot", card);
+    if (fg) fg.onclick = () => forgotForm(form.email.value.trim());
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      withBusy(form, async () => {
+        const email = form.email.value.trim(), pw = form.pw.value;
+        if (isUp) {
+          const prenom = form.prenom.value.trim(), nom = form.nom.value.trim();
+          if (!prenom || !nom) throw new Error("Entre ton prénom et ton nom.");
+          if (!email) throw new Error("Entre ton email.");
+          if (pw.length < 6) throw new Error("Le mot de passe doit contenir au moins 6 caractères.");
+          if (pw !== form.pw2.value) throw new Error("Les deux mots de passe ne correspondent pas.");
+          if (!form.accept.checked) throw new Error("Accepte la politique de confidentialité pour continuer.");
+          const r = await Store.signUp(email, pw, `${prenom} ${nom}`);
+          if (r.confirm) {
+            card.innerHTML = `<div class="auth-done">
+              <span class="auth-pulse">${I.mail}</span>
+              <h1>Vérifie ta boîte mail</h1>
+              <p>Un lien de confirmation a été envoyé à <b>${esc(email)}</b>. Clique dessus, puis reviens te connecter.</p>
+              <p class="small muted">Pas reçu ? Regarde dans les spams.</p>
+              <a class="btn" href="#/connexion">Aller à la connexion</a>
+            </div>`;
+            return;
+          }
+          toast(`Bienvenue ${prenom} !`);
+        } else {
+          if (!email || !pw) throw new Error("Email et mot de passe requis.");
+          await Store.signIn(email, pw);
+          toast("Connecté ✓");
+        }
+        location.hash = "#/";
+      });
+    };
+  }
+
+  /* ------------------------- Accès payant ------------------------- */
+  const prixTexte = () => { const T = CFG.tarif || {}; return T.montant ? `${T.montant} ${T.devise || "DH"}` : "Prix à définir"; };
+  const fmtJour = (d) => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  const modeLabel = (m) => ({ en_ligne: "Paiement en ligne", virement: "Virement bancaire", cashplus: "CashPlus / Wafacash" }[m] || "—");
+
+  function paywallPage() {
+    const u = Store.user(); const P = CFG.paiement || {}; const T = CFG.tarif || {};
+    const dom = CFG.domaineGratuit || "etu.univh2c.ma";
+    const contact = P.contact ? `<p class="small muted">Une question ? Contacte : <b>${esc(P.contact)}</b></p>` : "";
+    if (u.paiement_statut === "en_attente") {
+      main.innerHTML = `<div class="pay-wrap"><div class="card card-pad pay-wait">
+        <span class="auth-pulse" style="background:var(--warn-50);color:var(--warn)">${I.cal}</span>
+        <h1>Paiement en cours de vérification</h1>
+        <p>Ta demande (${esc(modeLabel(u.paiement_mode))}) a bien été envoyée. L'administrateur va la vérifier et activer ton accès jusqu'au <b>${fmtJour(window.finAnneeUniv())}</b>.</p>
+        <p class="small muted">Reviens un peu plus tard et clique sur « Vérifier mon accès ».</p>
+        <div class="form-actions" style="justify-content:flex-start"><button class="btn" id="pw-refresh">Vérifier mon accès</button><button class="btn btn-ghost" id="pw-out">Se déconnecter</button></div>
+        ${contact}</div></div>`;
+      $("#pw-refresh").onclick = async () => { await Store.refreshUser(); if (Store.user().acces) toast("Accès activé ✓"); else toast("Toujours en attente de validation."); };
+      $("#pw-out").onclick = () => Store.signOut();
+      return;
+    }
+    const v = P.virement || {}, c = P.cashplus || {};
+    const ycpKey = P.youcanPay && P.youcanPay.clePublique;
+    const ligne = (k, val) => val ? `<div><dt>${k}</dt><dd>${esc(val)}</dd></div>` : "";
+    const detailsVir = ligne("Bénéficiaire", v.beneficiaire) + ligne("Banque", v.banque) + ligne("RIB", v.rib);
+    const detailsCash = ligne("Bénéficiaire", c.beneficiaire) + ligne("Téléphone", c.telephone);
+    main.innerHTML = `<div class="pay-wrap">
+      <div class="pay-head">
+        <span class="badge" style="background:var(--primary-50);color:var(--primary)">Accès aux cours</span>
+        <h1>Active ton accès</h1>
+        <p class="muted">Les étudiants de la FMPC avec un email <b>@${esc(dom)}</b> ont un accès <b>gratuit</b>. Avec un autre email, l'accès coûte <b>${esc(prixTexte())}</b> pour ${esc(T.periode || "l'année universitaire")}.</p>
+      </div>
+      ${u.paiement_statut === "refuse" ? `<div class="form-error">Ta dernière demande n'a pas été validée. Vérifie ta preuve de paiement ou contacte l'administrateur.</div>` : ""}
+      <div class="pay-tip card card-pad">
+        <span class="pay-tip-ico">${I.mail}</span>
+        <div><b>Tu as un email @${esc(dom)} ?</b><p class="small muted">Crée ton compte avec cet email : l'accès est gratuit et immédiat. Tu es actuellement connecté avec <b>${esc(u.email)}</b>.</p></div>
+        <button class="btn btn-ghost btn-sm" id="pw-switch">Changer de compte</button>
+      </div>
+      <div class="pay-grid ${ycpKey || P.lienEnLigne ? "" : "pay-one"}">
+        ${ycpKey || P.lienEnLigne ? `<section class="card card-pad pay-opt">
+          <span class="pay-ico" style="background:var(--info-50);color:var(--info)">${I.card}</span>
+          <h2>Payer par carte</h2>
+          <p class="muted small">Carte marocaine ou internationale. ${ycpKey ? "Ton accès s'active <b>automatiquement</b>." : ""}</p>
+          <div class="pay-price">${esc(prixTexte())}<small> / année universitaire</small></div>
+          ${ycpKey
+            ? `<button class="btn btn-lg" id="pw-card" ${T.montant ? "" : "disabled"}>${I.card} Payer par carte</button>
+               <p class="small muted">Paiement sécurisé par YouCan Pay : tes données de carte ne passent pas par MedFMPC.</p>`
+            : `<a class="btn btn-lg" href="${esc(safeUrl(P.lienEnLigne))}" target="_blank" rel="noopener">Payer en ligne ${I.ext}</a>
+               <p class="small muted">Utilise l'email <b>${esc(u.email)}</b> lors du paiement. Ensuite :</p>
+               <button class="btn btn-ghost" id="pw-online">J'ai payé en ligne</button>`}
+        </section>` : ""}
+        <section class="card card-pad pay-opt">
+          <span class="pay-ico" style="background:var(--warn-50);color:var(--warn)">${I.bank}</span>
+          <h2>Virement ou CashPlus</h2>
+          <p class="muted small">Paie, puis envoie la photo du reçu. L'admin active ton accès après vérification.</p>
+          <div class="seg pay-seg" role="tablist"><a href="#" data-pm="virement" class="active">Virement</a><a href="#" data-pm="cashplus">CashPlus / Wafacash</a></div>
+          <dl class="pay-details" data-for="virement">${detailsVir || '<div><dd class="muted">Coordonnées bancaires à venir.</dd></div>'}</dl>
+          <dl class="pay-details" data-for="cashplus" hidden>${detailsCash || '<div><dd class="muted">Coordonnées CashPlus à venir.</dd></div>'}</dl>
+          <p class="small muted">Montant : <b>${esc(prixTexte())}</b> · Motif : <b>${esc(u.email)}</b></p>
+          <form class="form" novalidate>
+            <div class="field"><label>Preuve de paiement</label>${dropzoneHtml("preuve", "image/*,application/pdf", "Photo du reçu ou capture du virement")}</div>
+            <button type="submit" class="btn">Envoyer ma preuve</button>
+          </form>
+        </section>
+      </div>
+      ${contact}
+    </div>`;
+    $("#pw-switch").onclick = async () => { await Store.signOut(); location.hash = "#/commencer"; };
+    let mode = "virement";
+    $$(".pay-seg a").forEach((a) => a.onclick = (e) => {
+      e.preventDefault(); mode = a.dataset.pm;
+      $$(".pay-seg a").forEach((x) => x.classList.toggle("active", x === a));
+      $$(".pay-details").forEach((d) => (d.hidden = d.dataset.for !== mode));
+    });
+    const form = $(".pay-opt form"); wireDropzones(form);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      withBusy(form, async () => {
+        const f = form.preuve.files[0];
+        if (!f) throw new Error("Ajoute la photo du reçu ou la capture du virement.");
+        checkFile(f);
+        await Store.demanderAcces(mode, f);
+        toast("Preuve envoyée ✓"); route();
+      });
+    };
+    const cardBtn = $("#pw-card");
+    if (cardBtn) cardBtn.onclick = () => openCardPayment(ycpKey);
+    const on = $("#pw-online");
+    if (on) on.onclick = async () => {
+      const ok = await confirmBox("Confirmer que tu as payé en ligne avec l'email " + u.email + " ? L'admin vérifiera le paiement.", "Oui, j'ai payé");
+      if (!ok) return;
+      try { await Store.demanderAcces("en_ligne", null); toast("Demande envoyée ✓"); route(); } catch (err) { toast(err.message, true); }
+    };
+  }
+
+  const loadedScripts = {};
+  function loadScriptOnce(src) {
+    if (!loadedScripts[src]) loadedScripts[src] = new Promise((res, rej) => {
+      const el = document.createElement("script"); el.src = src; el.onload = res;
+      el.onerror = () => { delete loadedScripts[src]; rej(new Error("Impossible de charger le module de paiement. Vérifie ta connexion.")); };
+      document.head.appendChild(el);
+    });
+    return loadedScripts[src];
+  }
+
+  async function waitActivation(box) {
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const u = await Store.refreshUser();
+      if (u && u.acces) { closeModal(); toast("Accès activé ✓ Bienvenue !"); location.hash = "#/"; route(); return; }
+    }
+    box.innerHTML = `<div class="auth-done"><span class="auth-pulse">${I.check}</span><h3>Paiement reçu</h3>
+      <p>L'activation prend un peu plus de temps que prévu. Recharge la page dans quelques minutes.</p></div>`;
+  }
+
+  async function openCardPayment(pubKey) {
+    const fin = fmtJour(window.finAnneeUniv());
+    const body = openModal("Paiement par carte", `
+      <div class="ycp-box" id="ycp-box">
+        <div class="ycp-sum"><span>Accès MedFMPC jusqu'au ${esc(fin)}</span><b>${esc(prixTexte())}</b></div>
+        <div id="ycp-form" class="ycp-form"><div class="spinner"></div></div>
+        <div class="form-error" id="ycp-err" hidden></div>
+        <button class="btn btn-lg" id="ycp-pay" style="width:100%" disabled>Payer ${esc(prixTexte())}</button>
+        <p class="small muted" style="text-align:center;margin:0">Paiement sécurisé par YouCan Pay</p>
+      </div>`);
+    const err = $("#ycp-err", body), btn = $("#ycp-pay", body), form = $("#ycp-form", body), box = $("#ycp-box", body);
+    const showErr = (m) => { err.textContent = m; err.hidden = false; };
+    try {
+      if (Store.demo) {
+        form.innerHTML = `<p class="small muted"><b>Aperçu :</b> formulaire simulé. Sur le vrai site, le formulaire sécurisé de YouCan Pay s'affiche ici.</p>
+          <div class="field"><label>Numéro de carte</label><input class="input" value="4242 4242 4242 4242" readonly></div>
+          <div class="form-row"><div class="field"><label>Expiration</label><input class="input" value="12/29" readonly></div><div class="field"><label>CVV</label><input class="input" value="123" readonly></div></div>`;
+        btn.disabled = false;
+        btn.onclick = async () => { btn.disabled = true; btn.textContent = "Paiement en cours…"; await new Promise((r) => setTimeout(r, 800)); await Store.demoPayer(); closeModal(); toast("Paiement réussi · accès activé ✓"); location.hash = "#/"; route(); };
+        return;
+      }
+      const { token } = await Store.payToken();
+      await loadScriptOnce("https://youcanpay.com/yp.js");
+      form.innerHTML = "";
+      const el = window.yp(pubKey, { locale: "fr" }).elements({ token, container: "#ycp-form" });
+      el.on("error", (e) => showErr(e.message || "Erreur de paiement."));
+      await el.mount();
+      btn.disabled = false;
+      btn.onclick = async () => {
+        err.hidden = true; btn.disabled = true; btn.textContent = "Paiement en cours…";
+        const r = await el.confirm();
+        if (r.status === "succeeded") {
+          box.innerHTML = `<div class="auth-done"><span class="auth-pulse">${I.check}</span><h3>Paiement réussi !</h3><p>Activation de ton accès en cours…</p><div class="spinner" style="margin:6px 0"></div></div>`;
+          waitActivation(box);
+        } else {
+          showErr((r.error && r.error.message) || "Le paiement a échoué. Réessaie ou utilise une autre carte.");
+          btn.disabled = false; btn.textContent = `Payer ${prixTexte()}`;
+        }
+      };
+    } catch (e) {
+      form.innerHTML = "";
+      showErr(e.message || String(e));
+    }
+  }
+
+  function suspendedWall() {
+    main.innerHTML = emptyState("Compte suspendu", `Ton compte a été désactivé par l'administrateur.<br>Contacte-le si tu penses que c'est une erreur.<br><br><button class="btn btn-ghost" id="wall-logout">Se déconnecter</button>`, I.users);
+    const b = $("#wall-logout"); if (b) b.onclick = () => Store.signOut();
+  }
+
   async function route() {
     const raw = location.hash.replace(/^#\/?/, "");
     const [pathStr, qs] = raw.split("?");
@@ -762,14 +1215,28 @@
     $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === page));
     $("#nav").classList.remove("open");
     $("#menu-btn").setAttribute("aria-expanded", "false");
-    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin" };
+    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité" };
     document.title = `${titles[page] || "MedFMPC"} — ${CFG.nomSite}`;
+    const u = Store.user();
+    if (u && u.actif === false) return suspendedWall();
+    if (CFG.inscriptionObligatoire && !u) {
+      document.body.classList.add("public");
+      if (page === "commencer") { document.title = `Créer un compte — ${CFG.nomSite}`; return authPage("up"); }
+      if (page === "connexion") { document.title = `Connexion — ${CFG.nomSite}`; return authPage("in"); }
+      if (page !== "confidentialite") { document.title = CFG.nomSite; return landingPage(); }
+    } else document.body.classList.remove("public");
+    if (u && (page === "commencer" || page === "connexion")) { location.replace("#/"); return; }
+    if (u && !u.acces) {
+      document.body.classList.add("public");
+      if (page !== "confidentialite") { document.title = `Accès — ${CFG.nomSite}`; return paywallPage(); }
+    }
     try {
       if (page === "accueil") await pageAccueil();
       else if (page === "actualites") await pageActualites(params);
       else if (page === "planning") await pagePlanning(params);
       else if (page === "lecons") await pageLecons(parts.slice(1));
       else if (page === "admin") await pageAdmin(params);
+      else if (page === "confidentialite") pageConfidentialite();
       else notFound();
     } catch (e) {
       console.error(e);
@@ -785,7 +1252,8 @@
     if (e.target.closest("[data-stop]")) return; // liens téléchargement dans une ligne
     if (t.dataset.action) {
       const a = t.dataset.action;
-      if (a === "login") return loginForm();
+      if (a === "login") { if (CFG.inscriptionObligatoire && !Store.user()) { location.hash = "#/connexion"; return; } return loginForm(); }
+      if (a === "signup") { location.hash = "#/commencer"; return; }
       if (a === "new-news") return newsForm();
       if (a === "new-planning") return planningForm({ filiere: new URLSearchParams(location.hash.split("?")[1]).get("filiere") || undefined });
       if (a === "new-lesson") return lessonForm({ filiere: t.dataset.filiere, annee: t.dataset.annee, semestre: t.dataset.semestre });
@@ -817,19 +1285,24 @@
     const u = Store.user();
     $("#btn-login").hidden = !!u;
     $("#user-chip").hidden = !u;
-    $("#nav-admin").hidden = !u;
+    $("#nav-admin").hidden = !(u && (u.role === "admin" || u.role === "editor"));
     if (u) {
       $("#user-name").textContent = u.nom;
       $("#user-role").textContent = roleLabel(u.role);
       $("#user-avatar").textContent = (u.nom || u.email || "?").trim().charAt(0).toUpperCase();
     }
   }
-  $("#btn-login").onclick = loginForm;
+  $("#btn-login").onclick = () => { if (CFG.inscriptionObligatoire) location.hash = "#/connexion"; else loginForm(); };
   $("#btn-logout").onclick = async () => { await Store.signOut(); toast("Déconnecté"); if (location.hash.startsWith("#/admin")) location.hash = "#/"; };
   $("#menu-btn").onclick = () => {
     const open = $("#nav").classList.toggle("open");
     $("#menu-btn").setAttribute("aria-expanded", String(open));
   };
+
+  async function ensureSnapshot() {
+    const u = Store.user();
+    if (u && u.acces && Store.loadSnapshot) { try { await Store.loadSnapshot(); } catch (e) { console.error(e); } }
+  }
 
   /* ------------------------------ démarrage --------------------------- */
   async function start() {
@@ -843,10 +1316,13 @@
       main.innerHTML = emptyState("Connexion impossible", "Le site n'a pas pu joindre la base de données. " + esc(e.message));
       return;
     }
-    Store.onAuth(() => { renderHeader(); route(); });
+    Store.onAuth(async () => { renderHeader(); await ensureSnapshot(); route(); });
+    Store.onRecovery(() => newPasswordForm());
     renderHeader();
+    await ensureSnapshot();
     window.addEventListener("hashchange", route);
     route();
+    if (Store.pingVisite) Store.pingVisite();
   }
   start();
 })();

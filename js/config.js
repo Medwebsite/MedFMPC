@@ -8,14 +8,39 @@ window.APP_CONFIG = {
   faculte: "Faculté de Médecine et de Pharmacie de Casablanca",
   slogan: "Cours, plannings et actualités — au même endroit.",
 
+  // Si true, il faut un compte pour voir et utiliser le site (pas d'accès visiteur).
+  inscriptionObligatoire: true,
+
+  // --- Accès gratuit / payant ----------------------------------------
+  // Gratuit pour les emails de ce domaine, payant pour les autres.
+  domaineGratuit: "etu.univh2c.ma",
+  tarif: {
+    montant: 0,                 // ex : 200  (0 = « prix à définir »)
+    devise: "DH",
+    periode: "l'année universitaire (jusqu'au 30 septembre)",
+  },
+  paiement: {
+    // Paiement par carte intégré (YouCan Pay) : clé PUBLIQUE uniquement.
+    // La clé privée ne va JAMAIS ici : elle va dans Supabase > Edge Functions > Secrets.
+    youcanPay: { clePublique: "pub_sandbox_1d521a1b-c0f4-4338-8568-aa707" }, // ⚠ clé incomplète : à remplacer par la clé entière
+    // (Autre option) lien vers une page de paiement externe
+    lienEnLigne: "",
+    // Virement bancaire
+    virement: { beneficiaire: "", banque: "", rib: "" },
+    // CashPlus / Wafacash
+    cashplus: { beneficiaire: "", telephone: "" },
+    // Contact pour les questions (WhatsApp ou email)
+    contact: "",
+  },
+
   // --- Supabase (Project Settings > API) ---------------------------
   supabaseUrl: "https://tesfbohfkehzdgnpicrt.supabase.co",
   supabaseAnonKey: "sb_publishable_0eKl3Q1rza_ijURba2Ha3w_xQufzzjP",    // clé publique (publishable)
 
   // --- Google Drive ------------------------------------------------
-  // Clé API Google (Drive API activée) = le site lit le Drive EN DIRECT.
-  // Sans clé, le site utilise la copie du Drive enregistrée dans
-  // js/drive-data.js (à rafraîchir quand le Drive change).
+  // Laisse vide : avec l'accès payant, la liste des cours est protégée
+  // dans Supabase (importée depuis Espace admin > Liaison Drive).
+  // Une clé API Google la rendrait lisible par tout le monde.
   googleApiKey: "",
 
   // --- Filières, années & semestres --------------------------------

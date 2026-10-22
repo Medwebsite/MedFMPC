@@ -5,7 +5,7 @@
 (function () {
   const CFG = window.APP_CONFIG;
   const BUCKET = "fichiers";
-  const DEMO_KEY = "medfmpc-demo-v2";
+  const DEMO_KEY = "medfmpc-demo-v3";
 
   const loadScript = (src) =>
     new Promise((res, rej) => {
@@ -17,11 +17,32 @@
   const slugFile = (name) => {
     const dot = name.lastIndexOf(".");
     const base = (dot > 0 ? name.slice(0, dot) : name)
-      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 60) || "fichier";
     const ext = dot > 0 ? name.slice(dot).toLowerCase().replace(/[^.a-z0-9]/g, "") : "";
     return base + ext;
   };
+
+  const today = () => new Date().toISOString().slice(0, 10);
+  const domaineGratuit = () => (CFG.domaineGratuit || "etu.univh2c.ma").toLowerCase();
+  function accesInfo(email, role, p) {
+    const univ = String(email || "").toLowerCase().endsWith("@" + domaineGratuit());
+    const jusqu = p && p.acces_jusqu;
+    const paye = !!(jusqu && jusqu >= today());
+    return {
+      univ, acces_jusqu: jusqu || null,
+      paiement_statut: (p && p.paiement_statut) || "aucun",
+      paiement_mode: (p && p.paiement_mode) || null,
+      acces: role === "admin" || role === "editor" || univ || paye,
+    };
+  }
+  // Fin de l'année universitaire : 30 septembre
+  function finAnneeUniv() {
+    const d = new Date(); const y = d.getMonth() >= 9 ? d.getFullYear() + 1 : d.getFullYear();
+    return `${y}-09-30`;
+  }
+  window.finAnneeUniv = finAnneeUniv;
+  window.accesInfo = accesInfo;
 
   /* ------------------------------------------------------------------ */
   /*  Implémentation SUPABASE                                            */
@@ -35,14 +56,19 @@
       if (!session) { currentUser = null; return null; }
       const u = session.user;
       const { data } = await sb.from("profiles").select("*").eq("id", u.id).maybeSingle();
+      const role = (data && data.role) || "user";
       currentUser = {
         id: u.id,
         email: u.email,
         nom: (data && data.nom) || u.email.split("@")[0],
-        role: (data && data.role) || "user",
+        role,
+        actif: data ? data.actif !== false : true,
+        ...accesInfo(u.email, role, data),
       };
       return currentUser;
     }
+
+    let recoveryFn = null;
 
     return {
       demo: false,
@@ -51,14 +77,17 @@
         sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
         const { data } = await sb.auth.getSession();
         await loadProfile(data.session);
-        sb.auth.onAuthStateChange(async (_evt, session) => {
+        sb.auth.onAuthStateChange(async (evt, session) => {
           const before = currentUser && currentUser.id;
           await loadProfile(session);
+          if (evt === "PASSWORD_RECOVERY" && recoveryFn) recoveryFn();
+          if (evt === "SIGNED_IN") sb.rpc("touch_last_seen").then(() => {}, () => {});
           if (before !== (currentUser && currentUser.id)) listeners.forEach((f) => f(currentUser));
         });
       },
       user: () => currentUser,
       onAuth(fn) { listeners.push(fn); },
+      onRecovery(fn) { recoveryFn = fn; },
       async refreshUser() {
         const { data } = await sb.auth.getSession();
         await loadProfile(data.session);
@@ -81,6 +110,77 @@
         return { confirm: false };
       },
       async signOut() { await sb.auth.signOut(); currentUser = null; listeners.forEach((f) => f(null)); },
+      async resetPassword(email) {
+        const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + location.pathname });
+        if (error) throw new Error(traduire(error.message));
+      },
+      async updatePassword(pw) {
+        const { error } = await sb.auth.updateUser({ password: pw });
+        if (error) throw new Error(traduire(error.message));
+        await this.refreshUser();
+      },
+      async pingVisite() { try { await sb.rpc("ping_visite"); } catch (e) {} },
+      async statsVisites() {
+        const { data } = await sb.rpc("stats_visites");
+        return data || { total: 0, jour: 0, semaine: 0 };
+      },
+      async setActif(id, actif) {
+        const { error } = await sb.from("profiles").update({ actif }).eq("id", id);
+        if (error) throw new Error(traduire(error.message));
+      },
+      // --- Cours (copie du Drive protégée) ---
+      async loadSnapshot() {
+        const { data, error } = await sb.from("drive_snapshot").select("cle,data,updated_at");
+        if (error || !data) return;
+        const folders = {}; let upd = "";
+        data.filter((r) => r.cle !== "stats").forEach((r) => { Object.assign(folders, r.data); if (r.updated_at > upd) upd = r.updated_at; });
+        window.Drive.setSnapshot(folders, upd ? upd.slice(0, 10) : "");
+      },
+      async publicStats() {
+        const { data } = await sb.from("drive_snapshot").select("data").eq("cle", "stats").maybeSingle();
+        return data ? data.data : null;
+      },
+      async importSnapshot(json) {
+        const rows = json.semestres.map((x) => ({ cle: x.racine, data: x.dossiers, updated_at: new Date().toISOString() }));
+        rows.push({ cle: "stats", data: json.stats, updated_at: new Date().toISOString() });
+        const { error } = await sb.from("drive_snapshot").upsert(rows);
+        if (error) throw new Error(traduire(error.message));
+        await this.loadSnapshot();
+      },
+      // --- Paiement ---
+      async demanderAcces(mode, file) {
+        let path = null;
+        if (file) {
+          path = `${currentUser.id}/${Date.now()}-${slugFile(file.name)}`;
+          const { error } = await sb.storage.from("preuves").upload(path, file, { upsert: false, contentType: file.type || undefined });
+          if (error) throw new Error(traduire(error.message));
+        }
+        const { error } = await sb.rpc("demander_acces", { mode, preuve: path });
+        if (error) throw new Error(traduire(error.message));
+        await this.refreshUser();
+      },
+      async payToken() {
+        const { data, error } = await sb.functions.invoke("paiement-token", { body: {} });
+        if (error) {
+          let msg = error.message;
+          try { const c = await error.context.json(); msg = c.error || msg; } catch (e) {}
+          throw new Error(msg);
+        }
+        return data;
+      },
+      async preuveUrl(path) {
+        const { data, error } = await sb.storage.from("preuves").createSignedUrl(path, 3600);
+        if (error) throw new Error(traduire(error.message));
+        return data.signedUrl;
+      },
+      async activerAcces(id, jusqu) {
+        const { error } = await sb.from("profiles").update({ acces_jusqu: jusqu, paiement_statut: "paye" }).eq("id", id);
+        if (error) throw new Error(traduire(error.message));
+      },
+      async refuserAcces(id) {
+        const { error } = await sb.from("profiles").update({ paiement_statut: "refuse", acces_jusqu: null }).eq("id", id);
+        if (error) throw new Error(traduire(error.message));
+      },
 
       async list(table, filters = {}) {
         let q = sb.from(table).select("*");
@@ -149,6 +249,7 @@
     let currentUser = null;
 
     const save = () => { try { localStorage.setItem(DEMO_KEY, JSON.stringify(db)); } catch (e) {} };
+    const persist = () => { try { sessionStorage.setItem(DEMO_KEY + "-user", JSON.stringify(currentUser)); } catch (e) {} };
     const now = Date.now();
     const iso = (daysAgo) => new Date(now - daysAgo * 864e5).toISOString();
 
@@ -210,9 +311,11 @@
             description: "", lien: "https://drive.google.com/", auteur_nom: "Délégué 2A", created_at: iso(2) },
         ],
         members: [
-          { id: "u1", email: "yahya@exemple.com", nom: "Yahya", role: "admin", created_at: iso(30) },
-          { id: "u2", email: "delegue1a@exemple.com", nom: "Délégué 1A", role: "editor", created_at: iso(20) },
-          { id: "u3", email: "etudiant@exemple.com", nom: "Étudiant", role: "user", created_at: iso(5) },
+          { id: "u1", email: "yahya@exemple.com", nom: "Yahya", role: "admin", actif: true, created_at: iso(30), last_seen: iso(0.1) },
+          { id: "u2", email: "delegue1a@exemple.com", nom: "Délégué 1A", role: "editor", actif: true, created_at: iso(20), last_seen: iso(1) },
+          { id: "u3", email: "sara.alaoui-etu@etu.univh2c.ma", nom: "Sara Alaoui", role: "user", actif: true, created_at: iso(5), last_seen: iso(3) },
+          { id: "u4", email: "karim.b@gmail.com", nom: "Karim Bennani", role: "user", actif: true, created_at: iso(2), last_seen: iso(0.5), paiement_statut: "en_attente", paiement_mode: "cashplus", paiement_preuve: "demo.jpg" },
+          { id: "u5", email: "lina.r@hotmail.com", nom: "Lina Rami", role: "user", actif: true, created_at: iso(40), last_seen: iso(1), paiement_statut: "paye", paiement_mode: "en_ligne", acces_jusqu: "2027-09-30" },
         ],
       };
     }
@@ -226,15 +329,39 @@
       },
       user: () => currentUser,
       onAuth(fn) { listeners.push(fn); },
+      onRecovery() {},
       async refreshUser() { return currentUser; },
+      async resetPassword() {},
+      async updatePassword() {},
+      async pingVisite() {},
+      async statsVisites() { return { total: 128, jour: 7, semaine: 34 }; },
+      async setActif(id, actif) { const m = db.members.find((x) => x.id === id); if (m) m.actif = actif; save(); },
+      async loadSnapshot() {},
+      async publicStats() { return null; },
+      async importSnapshot(json) { const f = {}; json.semestres.forEach((x) => Object.assign(f, x.dossiers)); window.Drive.setSnapshot(f, new Date().toISOString().slice(0, 10)); },
+      async demanderAcces(mode) { currentUser.paiement_statut = "en_attente"; currentUser.paiement_mode = mode; persist(); listeners.forEach((f) => f(currentUser)); },
+      async preuveUrl() { return "#"; },
+      async payToken() { return { token: "demo", montant: CFG.tarif && CFG.tarif.montant, sandbox: true }; },
+      async demoPayer() {
+        Object.assign(currentUser, { acces: true, acces_jusqu: finAnneeUniv(), paiement_statut: "paye", paiement_mode: "en_ligne" });
+        persist();
+      },
+      async activerAcces(id, jusqu) { const m = db.members.find((x) => x.id === id); if (m) { m.acces_jusqu = jusqu; m.paiement_statut = "paye"; } save(); },
+      async refuserAcces(id) { const m = db.members.find((x) => x.id === id); if (m) { m.paiement_statut = "refuse"; m.acces_jusqu = null; } save(); },
       async signIn(email) {
-        currentUser = { id: "u1", email, nom: email.split("@")[0] || "Admin", role: "admin" };
+        // Aperçu : « admin… » = admin ; @etu.univh2c.ma = étudiant gratuit ; autre email = accès payant
+        const role = /^admin/i.test(email) ? "admin" : "user";
+        currentUser = { id: role === "admin" ? "u1" : "u9", email, nom: email.split("@")[0] || "Admin", role, actif: true, ...accesInfo(email, role, null) };
         try { sessionStorage.setItem(DEMO_KEY + "-user", JSON.stringify(currentUser)); } catch (e) {}
         listeners.forEach((f) => f(currentUser));
         return currentUser;
       },
       async signUp(email, pw, nom) {
-        await this.signIn(email); currentUser.nom = nom || currentUser.nom; return { confirm: false };
+        const role = /^admin/i.test(email) ? "admin" : "user";
+        currentUser = { id: role === "admin" ? "u1" : "u9", email, nom: nom || email.split("@")[0], role, actif: true, ...accesInfo(email, role, null) };
+        try { sessionStorage.setItem(DEMO_KEY + "-user", JSON.stringify(currentUser)); } catch (e) {}
+        listeners.forEach((f) => f(currentUser));
+        return { confirm: false };
       },
       async signOut() {
         currentUser = null;
@@ -278,9 +405,19 @@
   const SHORTCUT = "application/vnd.google-apps.shortcut";
   const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
   const cache = new Map();
-  const SNAP = (window.DRIVE_SNAPSHOT && window.DRIVE_SNAPSHOT.folders) || {};
+  // Copie de l'arborescence : chargée depuis Supabase après connexion
+  // (ou depuis js/drive-data.js dans l'aperçu hors ligne)
+  const SNAP = {};
   const snapIndex = new Map(); // id -> { name, parent, folder }
-  Object.entries(SNAP).forEach(([parent, items]) => items.forEach(([id, name, f]) => snapIndex.set(id, { name, parent, folder: !!f })));
+  let snapUpdated = "";
+  function setSnapshot(folders, updated) {
+    Object.keys(SNAP).forEach((k) => delete SNAP[k]);
+    snapIndex.clear(); cache.clear();
+    Object.assign(SNAP, folders || {});
+    Object.entries(SNAP).forEach(([parent, items]) => items.forEach(([id, name, f]) => snapIndex.set(id, { name, parent, folder: !!f })));
+    snapUpdated = updated || snapUpdated;
+  }
+  if (window.DRIVE_SNAPSHOT) setSnapshot(window.DRIVE_SNAPSHOT.folders, window.DRIVE_SNAPSHOT.updated);
 
   const EXT_MIME = {
     pdf: "application/pdf", ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -306,7 +443,9 @@
     live: () => !!CFG.googleApiKey,
     // true si on peut afficher ce dossier (en direct ou via la copie)
     canList: (id) => !!CFG.googleApiKey || Object.prototype.hasOwnProperty.call(SNAP, id),
-    snapshotDate: () => (window.DRIVE_SNAPSHOT && window.DRIVE_SNAPSHOT.updated) || "",
+    snapshotDate: () => snapUpdated,
+    setSnapshot,
+    rootItems: (id) => SNAP[id] || [],
     async list(folderId) {
       if (cache.has(folderId)) return cache.get(folderId);
       if (!CFG.googleApiKey) { const r = fromSnap(folderId); cache.set(folderId, r); return r; }
@@ -357,7 +496,7 @@
     // Recherche dans tout un semestre — uniquement avec la copie
     canSearch: (rootId) => !!SNAP[rootId],
     search(rootId, query) {
-      const norm = (t) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const norm = (t) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const words = norm(query).split(/\s+/).filter(Boolean);
       const out = [];
       const walk = (fid, path) => (SNAP[fid] || []).forEach(([cid, name, f]) => {
