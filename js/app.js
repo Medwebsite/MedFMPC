@@ -1130,8 +1130,8 @@
       ${Store.demo ? '<p class="small muted"><b>Aperçu :</b> n\'importe quel email/mot de passe fonctionne.</p>' : ""}
       <form class="form" novalidate>
         ${isUp ? `<div class="form-row">
-          <div class="field"><label for="s-prenom">Prénom</label><input id="s-prenom" class="input" name="prenom" required maxlength="40" autocomplete="given-name" placeholder="ex : Yahya"></div>
-          <div class="field"><label for="s-nom">Nom</label><input id="s-nom" class="input" name="nom" required maxlength="40" autocomplete="family-name" placeholder="ex : Moujahid"></div>
+          <div class="field"><label for="s-prenom">Prénom</label><input id="s-prenom" class="input" name="prenom" required maxlength="40" autocomplete="given-name" placeholder="ex : Salma"></div>
+          <div class="field"><label for="s-nom">Nom</label><input id="s-nom" class="input" name="nom" required maxlength="40" autocomplete="family-name" placeholder="ex : Bennani"></div>
         </div>` : ""}
         <div class="field"><label for="s-email">Email</label><input id="s-email" class="input" type="email" name="email" required autocomplete="email" placeholder="prenom.nom@exemple.com"></div>
         <div class="field"><label for="s-pw">Mot de passe</label><input id="s-pw" class="input" type="password" name="pw" required minlength="6" autocomplete="${isUp ? "new-password" : "current-password"}" placeholder="${isUp ? "6 caractères minimum" : ""}"></div>

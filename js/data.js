@@ -322,7 +322,7 @@
         news: [
           { id: 1, titre: "Bienvenue sur la plateforme MedFMPC 🎉", categorie: "Info", epingle: true,
             contenu: "Retrouvez ici les cours classés par année, les plannings mis à jour et toutes les annonces importantes de la faculté.\n\nLes éditeurs de chaque promo peuvent publier directement depuis l'Espace admin.",
-            auteur_nom: "Yahya", created_at: iso(0.2) },
+            auteur_nom: "Admin", created_at: iso(0.2) },
           { id: 2, titre: "Examens du 1er semestre — calendrier publié", categorie: "Examen", epingle: false,
             contenu: "Le calendrier des examens de S1 (1ère et 2ème année) est disponible dans la rubrique Planning.\nPensez à vérifier vos salles la veille.",
             auteur_nom: "Délégué 2A", created_at: iso(1.5) },
@@ -354,7 +354,7 @@
           { id: 91, user_id: "u4", filiere: "medecine", annee: 2, mode: "cashplus", preuve: "demo.jpg", statut: "en_attente", created_at: iso(0.4) },
         ],
         members: [
-          { id: "u1", email: "yahya@exemple.com", nom: "Yahya", role: "admin", actif: true, created_at: iso(30), last_seen: iso(0.1) },
+          { id: "u1", email: "admin@exemple.com", nom: "Admin MedFMPC", role: "admin", actif: true, created_at: iso(30), last_seen: iso(0.1) },
           { id: "u2", email: "delegue1a@exemple.com", nom: "Délégué 1A", role: "editor", actif: true, created_at: iso(20), last_seen: iso(1) },
           { id: "u3", email: "sara.alaoui-etu@etu.univh2c.ma", nom: "Sara Alaoui", role: "user", actif: true, created_at: iso(5), last_seen: iso(3), filiere_choisie: "medecine", annee_choisie: 2 },
           { id: "u4", email: "karim.b@gmail.com", nom: "Karim Bennani", role: "user", actif: true, created_at: iso(2), last_seen: iso(0.5) },
