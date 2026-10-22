@@ -1,0 +1,383 @@
+/* =====================================================================
+   Couche de données : Supabase (en ligne) ou mode démo (local)
+   + lecture de Google Drive
+   ===================================================================== */
+(function () {
+  const CFG = window.APP_CONFIG;
+  const BUCKET = "fichiers";
+  const DEMO_KEY = "medfmpc-demo-v2";
+
+  const loadScript = (src) =>
+    new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = src; s.onload = res; s.onerror = () => rej(new Error("Script introuvable : " + src));
+      document.head.appendChild(s);
+    });
+
+  const slugFile = (name) => {
+    const dot = name.lastIndexOf(".");
+    const base = (dot > 0 ? name.slice(0, dot) : name)
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 60) || "fichier";
+    const ext = dot > 0 ? name.slice(dot).toLowerCase().replace(/[^.a-z0-9]/g, "") : "";
+    return base + ext;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  Implémentation SUPABASE                                            */
+  /* ------------------------------------------------------------------ */
+  function supabaseStore() {
+    let sb = null;
+    let listeners = [];
+    let currentUser = null;
+
+    async function loadProfile(session) {
+      if (!session) { currentUser = null; return null; }
+      const u = session.user;
+      const { data } = await sb.from("profiles").select("*").eq("id", u.id).maybeSingle();
+      currentUser = {
+        id: u.id,
+        email: u.email,
+        nom: (data && data.nom) || u.email.split("@")[0],
+        role: (data && data.role) || "user",
+      };
+      return currentUser;
+    }
+
+    return {
+      demo: false,
+      async init() {
+        await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js");
+        sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+        const { data } = await sb.auth.getSession();
+        await loadProfile(data.session);
+        sb.auth.onAuthStateChange(async (_evt, session) => {
+          const before = currentUser && currentUser.id;
+          await loadProfile(session);
+          if (before !== (currentUser && currentUser.id)) listeners.forEach((f) => f(currentUser));
+        });
+      },
+      user: () => currentUser,
+      onAuth(fn) { listeners.push(fn); },
+      async refreshUser() {
+        const { data } = await sb.auth.getSession();
+        await loadProfile(data.session);
+        listeners.forEach((f) => f(currentUser));
+        return currentUser;
+      },
+      async signIn(email, password) {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) throw new Error(traduire(error.message));
+        return this.refreshUser();
+      },
+      async signUp(email, password, nom) {
+        const { data, error } = await sb.auth.signUp({
+          email, password,
+          options: { data: { nom }, emailRedirectTo: location.origin + location.pathname },
+        });
+        if (error) throw new Error(traduire(error.message));
+        if (!data.session) return { confirm: true };
+        await this.refreshUser();
+        return { confirm: false };
+      },
+      async signOut() { await sb.auth.signOut(); currentUser = null; listeners.forEach((f) => f(null)); },
+
+      async list(table, filters = {}) {
+        let q = sb.from(table).select("*");
+        Object.entries(filters).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== "") q = q.eq(k, v);
+        });
+        const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
+        if (error) throw error;
+        return data || [];
+      },
+      async insert(table, row) {
+        const { data, error } = await sb.from(table)
+          .insert({ ...row, auteur_nom: currentUser ? currentUser.nom : null }).select().single();
+        if (error) throw new Error(traduire(error.message));
+        return data;
+      },
+      async update(table, id, patch) {
+        const { data, error } = await sb.from(table).update(patch).eq("id", id).select().single();
+        if (error) throw new Error(traduire(error.message));
+        return data;
+      },
+      async remove(table, row) {
+        const { error } = await sb.from(table).delete().eq("id", row.id);
+        if (error) throw new Error(traduire(error.message));
+        const paths = [row.fichier_path, row.image_path].filter(Boolean);
+        if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+      },
+      async upload(file, dossier) {
+        const path = `${dossier}/${Date.now()}-${slugFile(file.name)}`;
+        const { error } = await sb.storage.from(BUCKET).upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type || undefined });
+        if (error) throw new Error(traduire(error.message));
+        const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+        return { url: data.publicUrl, path };
+      },
+      async removeFile(path) { if (path) await sb.storage.from(BUCKET).remove([path]); },
+      async members() {
+        const { data, error } = await sb.from("profiles").select("*").order("created_at", { ascending: true });
+        if (error) throw error;
+        return data || [];
+      },
+      async setRole(id, role) {
+        const { error } = await sb.from("profiles").update({ role }).eq("id", id);
+        if (error) throw new Error(traduire(error.message));
+      },
+    };
+  }
+
+  function traduire(msg) {
+    const m = String(msg || "");
+    if (/Invalid login credentials/i.test(m)) return "Email ou mot de passe incorrect.";
+    if (/Email not confirmed/i.test(m)) return "Confirme d'abord ton email (regarde ta boîte de réception).";
+    if (/already registered/i.test(m)) return "Un compte existe déjà avec cet email.";
+    if (/Password should be at least/i.test(m)) return "Le mot de passe doit contenir au moins 6 caractères.";
+    if (/row-level security|violates row-level/i.test(m)) return "Action refusée : ton compte n'a pas les droits d'éditeur.";
+    if (/exceeded the maximum allowed size|Payload too large/i.test(m)) return "Fichier trop volumineux (max 50 Mo).";
+    if (/rate limit/i.test(m)) return "Trop de tentatives, réessaie dans quelques minutes.";
+    return m;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Implémentation DÉMO (données locales d'exemple)                    */
+  /* ------------------------------------------------------------------ */
+  function demoStore() {
+    let listeners = [];
+    let db = null;
+    let currentUser = null;
+
+    const save = () => { try { localStorage.setItem(DEMO_KEY, JSON.stringify(db)); } catch (e) {} };
+    const now = Date.now();
+    const iso = (daysAgo) => new Date(now - daysAgo * 864e5).toISOString();
+
+    function samplePlanningSvg(titre, couleur) {
+      const jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+      const cours = [
+        ["Anatomie 3", "Physiologie 2", "Sémiologie", "Biochimie", "Anatomie 4"],
+        ["Sémiologie", "Anatomie 3", "Biochimie", "Physiologie 2", "TD Anatomie"],
+        ["—", "TP Physio", "Secourisme", "TD Biochimie", "—"],
+      ];
+      const heures = ["08:30", "10:30", "14:30"];
+      let cells = "";
+      jours.forEach((j, i) => {
+        cells += `<text x="${150 + i * 150}" y="95" font-size="16" font-weight="700" fill="#0f172a" text-anchor="middle">${j}</text>`;
+      });
+      heures.forEach((h, r) => {
+        const y = 120 + r * 90;
+        cells += `<text x="45" y="${y + 50}" font-size="15" fill="#475569" text-anchor="middle">${h}</text>`;
+        jours.forEach((_, i) => {
+          const c = cours[r][i];
+          const fill = c === "—" ? "#f1f5f9" : couleur + "22";
+          cells += `<rect x="${80 + i * 150}" y="${y}" width="140" height="80" rx="10" fill="${fill}" stroke="${couleur}55"/>`;
+          cells += `<text x="${150 + i * 150}" y="${y + 46}" font-size="15" fill="#0f172a" text-anchor="middle">${c}</text>`;
+        });
+      });
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="840" height="420" viewBox="0 0 840 420"><rect width="840" height="420" fill="#fff"/><rect width="840" height="56" fill="${couleur}"/><text x="24" y="36" font-size="22" font-weight="700" fill="#fff" font-family="Arial">${titre}</text><g font-family="Arial">${cells}</g></svg>`;
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+
+    function seed() {
+      return {
+        seq: 100,
+        news: [
+          { id: 1, titre: "Bienvenue sur la plateforme MedFMPC 🎉", categorie: "Info", epingle: true,
+            contenu: "Retrouvez ici les cours classés par année, les plannings mis à jour et toutes les annonces importantes de la faculté.\n\nLes éditeurs de chaque promo peuvent publier directement depuis l'Espace admin.",
+            auteur_nom: "Yahya", created_at: iso(0.2) },
+          { id: 2, titre: "Examens du 1er semestre — calendrier publié", categorie: "Examen", epingle: false,
+            contenu: "Le calendrier des examens de S1 (1ère et 2ème année) est disponible dans la rubrique Planning.\nPensez à vérifier vos salles la veille.",
+            auteur_nom: "Délégué 2A", created_at: iso(1.5) },
+          { id: 3, titre: "Les cours du S3 sont en ligne", categorie: "Cours", epingle: false,
+            contenu: "Anatomie 3 + 4, Physiologie 2, Sémiologie 1, Biochimie clinique… tout est dans Leçons > Médecine > 2ème année > S3.",
+            auteur_nom: "Délégué 2A", created_at: iso(3) },
+          { id: 4, titre: "Journée de don du sang — jeudi au hall principal", categorie: "Événement", epingle: false,
+            contenu: "Venez nombreux ! Inscription sur place de 9h à 15h.",
+            auteur_nom: "BDE", created_at: iso(6) },
+        ],
+        plannings: [
+          { id: 11, titre: "Emploi du temps — Semaine 8", filiere: "medecine", annee: 2, periode: "S3",
+            type: "image", fichier_url: samplePlanningSvg("Médecine 2ème année (S3) — Semaine 8", "#0f766e"), auteur_nom: "Délégué 2A", created_at: iso(0.5) },
+          { id: 12, titre: "Emploi du temps — Semaine 8", filiere: "medecine", annee: 1, periode: "S1",
+            type: "image", fichier_url: samplePlanningSvg("Médecine 1ère année (S1) — Semaine 8", "#0369a1"), auteur_nom: "Délégué 1A", created_at: iso(1) },
+          { id: 13, titre: "Planning des TP", filiere: "pharmacie", annee: 1, periode: "Semestre 1",
+            type: "image", fichier_url: samplePlanningSvg("Pharmacie 1ère année — TP", "#7c3aed"), auteur_nom: "Délégué Pharma", created_at: iso(2) },
+        ],
+        lessons: [
+          { id: 21, filiere: "medecine", annee: 2, semestre: "S3", module: "Anatomie 3 + 4", titre: "Fiche — Voies de la sensibilité",
+            description: "Synthèse faite par la promo (exemple).", lien: "https://drive.google.com/", auteur_nom: "Délégué 2A", created_at: iso(1) },
+          { id: 22, filiere: "medecine", annee: 2, semestre: "S3", module: "Sémiologie 1", titre: "QCM corrigés — Sémiologie cardiaque",
+            description: "", lien: "https://drive.google.com/", auteur_nom: "Délégué 2A", created_at: iso(2) },
+        ],
+        members: [
+          { id: "u1", email: "yahya@exemple.com", nom: "Yahya", role: "admin", created_at: iso(30) },
+          { id: "u2", email: "delegue1a@exemple.com", nom: "Délégué 1A", role: "editor", created_at: iso(20) },
+          { id: "u3", email: "etudiant@exemple.com", nom: "Étudiant", role: "user", created_at: iso(5) },
+        ],
+      };
+    }
+
+    return {
+      demo: true,
+      async init() {
+        try { db = JSON.parse(localStorage.getItem(DEMO_KEY) || "null"); } catch (e) { db = null; }
+        if (!db || !db.news) { db = seed(); save(); }
+        try { currentUser = JSON.parse(sessionStorage.getItem(DEMO_KEY + "-user") || "null"); } catch (e) {}
+      },
+      user: () => currentUser,
+      onAuth(fn) { listeners.push(fn); },
+      async refreshUser() { return currentUser; },
+      async signIn(email) {
+        currentUser = { id: "u1", email, nom: email.split("@")[0] || "Admin", role: "admin" };
+        try { sessionStorage.setItem(DEMO_KEY + "-user", JSON.stringify(currentUser)); } catch (e) {}
+        listeners.forEach((f) => f(currentUser));
+        return currentUser;
+      },
+      async signUp(email, pw, nom) {
+        await this.signIn(email); currentUser.nom = nom || currentUser.nom; return { confirm: false };
+      },
+      async signOut() {
+        currentUser = null;
+        try { sessionStorage.removeItem(DEMO_KEY + "-user"); } catch (e) {}
+        listeners.forEach((f) => f(null));
+      },
+      async list(table, filters = {}) {
+        return (db[table] || [])
+          .filter((r) => Object.entries(filters).every(([k, v]) => v === undefined || v === null || v === "" || String(r[k]) === String(v)))
+          .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      },
+      async insert(table, row) {
+        const r = { ...row, id: ++db.seq, created_at: new Date().toISOString(), auteur_nom: currentUser ? currentUser.nom : null };
+        db[table].push(r); save(); return r;
+      },
+      async update(table, id, patch) {
+        const r = db[table].find((x) => x.id === id); Object.assign(r, patch); save(); return r;
+      },
+      async remove(table, row) { db[table] = db[table].filter((x) => x.id !== row.id); save(); },
+      async upload(file) {
+        // En démo, on garde le fichier en mémoire (data URL) s'il est petit
+        const url = await new Promise((res) => {
+          if (file.size > 1.5e6) return res(URL.createObjectURL(file));
+          const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(file);
+        });
+        return { url, path: null };
+      },
+      async removeFile() {},
+      async members() { return db.members.slice(); },
+      async setRole(id, role) { const m = db.members.find((x) => x.id === id); if (m) m.role = role; save(); },
+      reset() { db = seed(); save(); },
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  GOOGLE DRIVE                                                       */
+  /*  - avec clé API : lecture en direct du Drive                        */
+  /*  - sans clé : copie de l'arborescence (js/drive-data.js)            */
+  /* ------------------------------------------------------------------ */
+  const FOLDER = "application/vnd.google-apps.folder";
+  const SHORTCUT = "application/vnd.google-apps.shortcut";
+  const collator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+  const cache = new Map();
+  const SNAP = (window.DRIVE_SNAPSHOT && window.DRIVE_SNAPSHOT.folders) || {};
+  const snapIndex = new Map(); // id -> { name, parent, folder }
+  Object.entries(SNAP).forEach(([parent, items]) => items.forEach(([id, name, f]) => snapIndex.set(id, { name, parent, folder: !!f })));
+
+  const EXT_MIME = {
+    pdf: "application/pdf", ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", heic: "image/heic",
+    mp4: "video/mp4", mov: "video/quicktime", m4a: "audio/mp4", mp3: "audio/mpeg",
+  };
+  function guessMime(name) {
+    const m = /\.([a-z0-9]{2,5})$/i.exec(name || "");
+    return m ? (EXT_MIME[m[1].toLowerCase()] || "application/octet-stream") : "application/vnd.google-apps.document";
+  }
+  function sortItems(items) {
+    return items.sort((a, b) => {
+      const fa = a.mimeType === FOLDER, fb = b.mimeType === FOLDER;
+      if (fa !== fb) return fa ? -1 : 1;
+      return collator.compare(a.name, b.name);
+    });
+  }
+  const fromSnap = (id) => sortItems((SNAP[id] || []).map(([fid, name, f]) => ({ id: fid, name, mimeType: f ? FOLDER : guessMime(name) })));
+
+  const Drive = {
+    FOLDER,
+    live: () => !!CFG.googleApiKey,
+    // true si on peut afficher ce dossier (en direct ou via la copie)
+    canList: (id) => !!CFG.googleApiKey || Object.prototype.hasOwnProperty.call(SNAP, id),
+    snapshotDate: () => (window.DRIVE_SNAPSHOT && window.DRIVE_SNAPSHOT.updated) || "",
+    async list(folderId) {
+      if (cache.has(folderId)) return cache.get(folderId);
+      if (!CFG.googleApiKey) { const r = fromSnap(folderId); cache.set(folderId, r); return r; }
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+      const fields = encodeURIComponent("nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink,shortcutDetails)");
+      let token = "", all = [];
+      try {
+        do {
+          const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&key=${encodeURIComponent(CFG.googleApiKey)}${token ? "&pageToken=" + token : ""}`;
+          const r = await fetch(url);
+          const j = await r.json();
+          if (!r.ok) throw new Error((j.error && j.error.message) || "Erreur Google Drive");
+          all = all.concat(j.files || []);
+          token = j.nextPageToken || "";
+        } while (token);
+      } catch (e) {
+        if (SNAP[folderId]) { const r = fromSnap(folderId); cache.set(folderId, r); return r; } // repli sur la copie
+        throw e;
+      }
+      all = all.map((f) => f.mimeType === SHORTCUT && f.shortcutDetails
+        ? { ...f, id: f.shortcutDetails.targetId, mimeType: f.shortcutDetails.targetMimeType }
+        : f);
+      sortItems(all);
+      all.forEach((it) => cache.set("name:" + it.id, it.name));
+      cache.set(folderId, all);
+      return all;
+    },
+    async name(id) {
+      if (snapIndex.has(id)) return snapIndex.get(id).name;
+      const k = "name:" + id;
+      if (cache.has(k)) return cache.get(k);
+      if (!CFG.googleApiKey) return "Dossier";
+      try {
+        const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=name&supportsAllDrives=true&key=${encodeURIComponent(CFG.googleApiKey)}`);
+        const j = await r.json();
+        cache.set(k, j.name || "Dossier");
+      } catch (e) { cache.set(k, "Dossier"); }
+      return cache.get(k);
+    },
+    // Nombre de fichiers (récursif) — uniquement avec la copie
+    countFiles(id) {
+      if (!SNAP[id]) return null;
+      let n = 0;
+      const walk = (fid) => (SNAP[fid] || []).forEach(([cid, , f]) => (f ? walk(cid) : n++));
+      walk(id);
+      return n;
+    },
+    // Recherche dans tout un semestre — uniquement avec la copie
+    canSearch: (rootId) => !!SNAP[rootId],
+    search(rootId, query) {
+      const norm = (t) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const words = norm(query).split(/\s+/).filter(Boolean);
+      const out = [];
+      const walk = (fid, path) => (SNAP[fid] || []).forEach(([cid, name, f]) => {
+        if (f) walk(cid, [...path, { id: cid, name }]);
+        else if (words.every((w) => norm(name + " " + path.map((p) => p.name).join(" ")).includes(w))) {
+          out.push({ id: cid, name, mimeType: guessMime(name), path });
+        }
+      });
+      walk(rootId, []);
+      return out.slice(0, 200);
+    },
+    viewUrl: (it) => it.webViewLink || (it.mimeType === FOLDER ? `https://drive.google.com/drive/folders/${it.id}` : `https://drive.google.com/file/d/${it.id}/view`),
+    downloadUrl: (it) => (it.mimeType || "").startsWith("application/vnd.google-apps")
+      ? Drive.viewUrl(it)
+      : `https://drive.google.com/uc?export=download&id=${it.id}`,
+    embedFolderUrl: (id) => `https://drive.google.com/embeddedfolderview?id=${id}#list`,
+    folderUrl: (id) => `https://drive.google.com/drive/folders/${id}`,
+  };
+
+  const configured = !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
+  window.Store = configured ? supabaseStore() : demoStore();
+  window.Drive = Drive;
+})();
