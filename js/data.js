@@ -123,7 +123,7 @@
         await this.refreshUser();
         return { confirm: false };
       },
-      async signOut() { await sb.auth.signOut(); currentUser = null; listeners.forEach((f) => f(null)); },
+      async signOut() { try { await caches.delete("medfmpc-fichiers"); } catch (e) {} await sb.auth.signOut(); currentUser = null; listeners.forEach((f) => f(null)); },
       async resetPassword(email) {
         const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + location.pathname });
         if (error) throw new Error(traduire(error.message));
@@ -230,6 +230,26 @@
       async deleteNote(fichier) {
         const { error } = await sb.from("notes").delete().eq("user_id", currentUser.id).eq("fichier", fichier);
         if (error) throw new Error(traduire(error.message));
+      },
+      // --- Contenu d'un fichier (PDF, image) pour l'afficher dans le site ---
+      // Passe par l'Edge Function « fichier » qui vérifie l'accès à l'année.
+      // Le fichier est gardé en cache dans le navigateur pour ne pas le retélécharger.
+      async fetchFichier(id) {
+        const cacheKey = `https://medfmpc.cache/fichier/${encodeURIComponent(id)}`;
+        let cache = null;
+        try { cache = await caches.open("medfmpc-fichiers"); const hit = await cache.match(cacheKey); if (hit) return hit; } catch (e) { cache = null; }
+        const { data } = await sb.auth.getSession();
+        const token = data && data.session ? data.session.access_token : "";
+        const r = await fetch(`${CFG.supabaseUrl}/functions/v1/fichier?id=${encodeURIComponent(id)}`, {
+          headers: { Authorization: "Bearer " + token, apikey: CFG.supabaseAnonKey },
+        });
+        if (!r.ok) {
+          let msg = "";
+          try { msg = (await r.json()).error || ""; } catch (e) {}
+          throw new Error(msg || `Impossible de charger ce fichier (${r.status}).`);
+        }
+        if (cache) { try { const size = Number(r.headers.get("content-length") || 0); if (!size || size < 80e6) await cache.put(cacheKey, r.clone()); } catch (e) {} }
+        return r;
       },
       // --- Annotations au stylo (privées) ---
       async getAnnot(fichier) {
