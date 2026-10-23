@@ -676,3 +676,30 @@ html[lang="ar"] h1, html[lang="ar"] h2, html[lang="ar"] h3 { letter-spacing: 0; 
 .note-snip { color: var(--text); opacity: .85; font-size: .92rem; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-card:hover { border-color: var(--primary); }
 [dir="rtl"] .viewer-head .icon-btn svg { transform: scaleX(-1); }
+
+/* ---------- Stylo / surligneur / gomme ---------- */
+.annot { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--surface-2); }
+.annot-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.ab-group { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--surface-2); }
+.annot-bar button { border: 0; background: transparent; color: var(--text); width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; }
+.annot-bar button svg { width: 19px; height: 19px; }
+.annot-bar button:hover { background: var(--surface); }
+.annot-bar button.on { background: var(--primary); color: #fff; }
+.annot-bar button:disabled { opacity: .35; cursor: default; }
+.ab-colors { gap: 4px; padding: 4px 6px; }
+.annot-bar .ab-color { width: 26px; height: 26px; border-radius: 50%; background: var(--c); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.annot-bar .ab-color.on { box-shadow: 0 0 0 2px var(--primary); background: var(--c); }
+.ab-status { margin-inline-start: auto; }
+.annot-pages { flex: 1; min-height: 0; overflow: auto; padding: 16px; --zoom: 1; direction: ltr; }
+.ap { position: relative; width: calc(min(100%, 860px) * var(--zoom)); margin: 0 auto 16px; background: #fff; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.ap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ap-ink { mix-blend-mode: multiply; }
+.annot:not(.drawing) .ap-ink { pointer-events: none; }
+.annot.drawing .ap-ink { touch-action: none; cursor: crosshair; }
+.annot[data-tool="eraser"] .ap-ink { cursor: cell; }
+.ap-num { position: absolute; bottom: -1px; inset-inline-end: 6px; transform: translateY(100%); font-size: .72rem; color: var(--muted); }
+.annot-loading { height: 100%; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 20px; }
+.annot-loading .spinner { margin: 0; }
+.note-ink { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
+.note-ink svg { width: 12px; height: 12px; }
+@media (max-width: 600px) { .annot-pages { padding: 8px; } .annot-bar { gap: 6px; padding: 6px; } .annot-bar button { width: 34px; height: 34px; } .ab-status { width: 100%; } }
