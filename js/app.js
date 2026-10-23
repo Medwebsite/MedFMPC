@@ -731,7 +731,7 @@
       : [kindLabel[kind] || "Fichier", humanSize(it.size), it.modifiedTime ? "modifié " + timeAgo(it.modifiedTime) : ""].filter(Boolean).join(" · ");
     const isNative = (it.mimeType || "").startsWith("application/vnd.google-apps");
     return `<li class="item" data-name="${esc(it.name)}">
-      <a class="item-link" href="${esc(Drive.viewUrl(it))}" target="_blank" rel="noopener" title="Ouvrir dans Google Drive">
+      <a class="item-link" href="#/fichier/${esc(it.id)}" title="Ouvrir">
         <span class="fi ${cls}">${icon}</span><span class="nm"><b>${esc(it.name)}</b><small>${meta}</small></span></a>
       <span class="acts">${isNative ? "" : `<a class="icon-btn" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger" aria-label="Télécharger ${esc(it.name)}">${I.dl}</a>`}</span></li>`;
   }
@@ -920,6 +920,102 @@
           <button class="btn btn-sm btn-danger" data-del="${x.t}:${x.r.id}" title="Supprimer">${I.trash}</button></div></td>
       </tr>`).join("")}</tbody></table></div>`
       : emptyState("Rien de publié", "Utilise les boutons ci-dessus pour commencer.");
+  }
+
+  /* ---------------- Lecteur de document + notes personnelles ---------------- */
+  // Retrouve filière / année / semestre à partir du dossier racine du semestre
+  function semFromRoot(root) {
+    for (const f of CFG.filieres) for (const a of f.annees) for (const x of a.semestres) if (x.drive && x.drive === root) return { f, a, s: x };
+    return null;
+  }
+
+  async function pageFichier(id) {
+    const info = id && Drive.info(id);
+    if (!info || info.folder) {
+      main.innerHTML = emptyState("Document indisponible", "Ce document ne fait pas partie de ton année, ou il a été déplacé.<br><br><a class=\"btn btn-soft\" href=\"#/notes\">Voir mes notes</a>", I.file);
+      return;
+    }
+    const tr = Drive.trail(id);
+    const loc = semFromRoot(tr.root);
+    const back = loc ? `#/lecons/${loc.f.id}/${loc.a.annee}/${loc.s.code}${tr.folders.length ? "/" + tr.folders.join("/") : ""}` : "#/lecons";
+    const folderNames = tr.folders.map((x) => prettyName((Drive.info(x) || {}).name || ""));
+    const contexte = [loc ? `${anneeCourt(loc.f.id, loc.a.annee)} · ${loc.s.code}` : "", ...folderNames].filter(Boolean).join(" › ");
+    const items = await Drive.list(info.parent);
+    const it = items.find((x) => x.id === id) || { id, name: info.name, mimeType: "" };
+    const isNative = (it.mimeType || "").startsWith("application/vnd.google-apps");
+    document.title = `${info.name} — ${CFG.nomSite}`;
+    main.innerHTML = `<div class="viewer" id="viewer">
+      <div class="viewer-head">
+        <a class="icon-btn" href="${back}" title="Retour au dossier" aria-label="Retour au dossier">${I.back}</a>
+        <div class="viewer-title"><b data-i18n-skip>${esc(info.name)}</b><small class="muted" data-i18n-skip>${esc(contexte)}</small></div>
+        <div class="viewer-acts">
+          ${isNative ? "" : `<a class="btn btn-sm btn-ghost" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger">${I.dl}<span>Télécharger</span></a>`}
+          <button class="btn btn-sm btn-soft" id="vw-toggle" aria-expanded="true">${I.edit}<span>Mes notes</span></button>
+        </div>
+      </div>
+      <div class="viewer-body">
+        <div class="viewer-doc"><div class="spinner"></div><iframe src="${esc(Drive.previewUrl(id))}" title="Aperçu du document" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe></div>
+        <aside class="viewer-notes" id="vw-notes">
+          <div class="vn-head"><b>Mes notes</b><span class="small muted" id="vn-status"></span></div>
+          <textarea id="vn-text" class="input" dir="auto" maxlength="20000" disabled placeholder="${esc(T("Écris tes notes ici… Elles sont enregistrées automatiquement."))}"></textarea>
+          <div class="vn-foot small muted">${I.lock}<span>Privées : toi seul peux les voir.</span></div>
+        </aside>
+      </div>
+    </div>`;
+
+    const viewer = $("#viewer"), ta = $("#vn-text"), status = $("#vn-status");
+    const frame = $(".viewer-doc iframe", viewer);
+    frame.addEventListener("load", () => { const sp = $(".viewer-doc .spinner", viewer); if (sp) sp.remove(); });
+    $("#vw-toggle").onclick = () => {
+      const hidden = viewer.classList.toggle("no-notes");
+      $("#vw-toggle").setAttribute("aria-expanded", String(!hidden));
+      if (!hidden && window.innerWidth < 900) $("#vw-notes").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    let saved = "", timer = null, saving = Promise.resolve();
+    const setStatus = (t) => { status.textContent = t ? T(t) : ""; };
+    const save = () => {
+      clearTimeout(timer); timer = null;
+      const val = ta.value;
+      if (val === saved) return saving;
+      setStatus("Enregistrement…");
+      saving = saving.then(() => Store.saveNote(id, { contenu: val, nom: info.name, contexte }))
+        .then(() => { saved = val; if (document.body.contains(status)) setStatus(val.trim() ? "Enregistré ✓" : ""); })
+        .catch((e) => { if (document.body.contains(status)) setStatus(""); toast(e.message, true); });
+      return saving;
+    };
+    try {
+      const n = await Store.getNote(id);
+      saved = (n && n.contenu) || ""; ta.value = saved;
+      if (n && n.updated_at) status.textContent = T("Modifiée") + " " + timeAgo(n.updated_at);
+    } catch (e) { toast(e.message, true); }
+    ta.disabled = false;
+    ta.addEventListener("input", () => { setStatus("Modifications non enregistrées"); clearTimeout(timer); timer = setTimeout(save, 900); });
+    ta.addEventListener("blur", save);
+    route.flush = save;
+    window.addEventListener("beforeunload", () => { if (ta.value !== saved) save(); }, { once: true });
+  }
+
+  async function pageNotes() {
+    const notes = await Store.listNotes();
+    main.innerHTML = `
+      <div class="page-head"><div><h1>Mes notes</h1><p>Toutes les notes que tu as prises sur les cours. Elles sont privées.</p></div></div>
+      ${notes.length ? `<div class="notes-list">${notes.map((n) => `
+        <article class="card note-card">
+          <a class="note-main" href="#/fichier/${esc(n.fichier)}">
+            <span class="fi fi-doc">${I.edit}</span>
+            <span class="note-txt"><b data-i18n-skip>${esc(n.nom || "Document")}</b>
+              ${n.contexte ? `<small class="muted" data-i18n-skip>${esc(n.contexte)}</small>` : ""}
+              <span class="note-snip" dir="auto" data-i18n-skip>${esc(n.contenu.slice(0, 220))}${n.contenu.length > 220 ? "…" : ""}</span>
+              <small class="muted">${esc(T("Modifiée"))} ${timeAgo(n.updated_at)}</small></span>
+          </a>
+          <button class="icon-btn" data-del-note="${esc(n.fichier)}" title="Supprimer la note" aria-label="Supprimer la note" style="color:var(--danger)">${I.trash}</button>
+        </article>`).join("")}</div>`
+        : emptyState("Aucune note pour l'instant", "Ouvre un fichier dans Leçons et écris dans « Mes notes » : tout est enregistré ici automatiquement.<br><br><a class=\"btn\" href=\"#/lecons\">Voir les leçons</a>", I.edit)}`;
+    $$("[data-del-note]").forEach((b) => (b.onclick = async () => {
+      if (!(await confirmBox("Supprimer cette note ? Cette action est définitive."))) return;
+      try { await Store.deleteNote(b.dataset.delNote); toast("Note supprimée"); route(); } catch (e) { toast(e.message, true); }
+    }));
   }
 
   function notFound() {
@@ -1399,6 +1495,7 @@
   }
 
   async function route() {
+    if (route.flush) { const f = route.flush; route.flush = null; try { await f(); } catch (e) {} }
     const raw = location.hash.replace(/^#\/?/, "");
     const [pathStr, qs] = raw.split("?");
     const parts = pathStr.split("/").filter(Boolean).map(decodeURIComponent);
@@ -1407,7 +1504,7 @@
     $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === page));
     $("#nav").classList.remove("open");
     $("#menu-btn").setAttribute("aria-expanded", "false");
-    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité" };
+    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité", fichier: "Document", notes: "Mes notes" };
     document.title = T(`${titles[page] || "MedFMPC"} — ${CFG.nomSite}`);
     const u = Store.user();
     renderHeader();
@@ -1431,6 +1528,8 @@
       else if (page === "lecons") await pageLecons(parts.slice(1));
       else if (page === "admin") await pageAdmin(params);
       else if (page === "confidentialite") pageConfidentialite();
+      else if (page === "fichier") await pageFichier(parts[1]);
+      else if (page === "notes") await pageNotes();
       else notFound();
     } catch (e) {
       console.error(e);
@@ -1480,6 +1579,8 @@
     $("#btn-login").hidden = !!u;
     $("#user-chip").hidden = !u;
     $("#nav-admin").hidden = !(u && (u.role === "admin" || u.role === "editor"));
+    const nn = $("#nav-notes");
+    if (nn) nn.hidden = !(u && u.acces);
     const na = $("#nav-annee");
     if (na) {
       na.hidden = !(u && !u.full && u.acces);
