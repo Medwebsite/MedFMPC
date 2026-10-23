@@ -135,7 +135,7 @@
     // ---- Chargement du document ----
     let pages = []; // { n, el, base, ink, ratio, rendered, render() }
     try {
-      const resp = await fetch(opts.src);
+      const resp = opts.load ? await opts.load() : await fetch(opts.src);
       if (!resp.ok) throw new Error(T("Impossible de charger ce fichier") + ` (${resp.status}).`);
       const buf = await resp.arrayBuffer();
       if (opts.kind === "pdf") {
