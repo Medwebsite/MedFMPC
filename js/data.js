@@ -231,6 +231,27 @@
         const { error } = await sb.from("notes").delete().eq("user_id", currentUser.id).eq("fichier", fichier);
         if (error) throw new Error(traduire(error.message));
       },
+      // --- Annotations au stylo (privées) ---
+      async getAnnot(fichier) {
+        const { data, error } = await sb.from("annotations").select("data,updated_at").eq("user_id", currentUser.id).eq("fichier", fichier).maybeSingle();
+        if (error) throw new Error(traduire(error.message));
+        return data;
+      },
+      async saveAnnot(fichier, data, { nom, contexte }) {
+        const vide = !Object.values(data.pages || {}).some((l) => l && l.length);
+        if (vide) return this.deleteAnnot(fichier);
+        const { error } = await sb.from("annotations").upsert({ user_id: currentUser.id, fichier, nom, contexte, data, updated_at: new Date().toISOString() });
+        if (error) throw new Error(traduire(error.message));
+      },
+      async listAnnots() {
+        const { data, error } = await sb.from("annotations").select("fichier,nom,contexte,updated_at").eq("user_id", currentUser.id);
+        if (error) throw new Error(traduire(error.message));
+        return data || [];
+      },
+      async deleteAnnot(fichier) {
+        const { error } = await sb.from("annotations").delete().eq("user_id", currentUser.id).eq("fichier", fichier);
+        if (error) throw new Error(traduire(error.message));
+      },
 
       async list(table, filters = {}) {
         let q = sb.from(table).select("*");
@@ -491,6 +512,14 @@
       },
       async listNotes() { return (db.notes || []).filter((n) => n.user_id === currentUser.id).sort((a, b) => b.updated_at.localeCompare(a.updated_at)); },
       async deleteNote(fichier) { db.notes = (db.notes || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier)); save(); },
+      async getAnnot(fichier) { return (db.annots || []).find((n) => n.user_id === currentUser.id && n.fichier === fichier) || null; },
+      async saveAnnot(fichier, data, { nom, contexte }) {
+        db.annots = (db.annots || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier));
+        if (Object.values(data.pages || {}).some((l) => l && l.length)) db.annots.push({ user_id: currentUser.id, fichier, nom, contexte, data, updated_at: new Date().toISOString() });
+        save();
+      },
+      async listAnnots() { return (db.annots || []).filter((n) => n.user_id === currentUser.id); },
+      async deleteAnnot(fichier) { db.annots = (db.annots || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier)); save(); },
       reset() { db = seed(); save(); },
     };
   }
