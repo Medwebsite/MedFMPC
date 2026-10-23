@@ -148,7 +148,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
 .demo-banner { background: var(--warn-50); color: var(--warn); border-bottom: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); font-size: .875rem; padding: 8px 0; }
 
-@media (max-width: 860px) {
+.nav a { white-space: nowrap; }
+@media (min-width: 1241px) { .nav { gap: 2px; } .nav a { padding: 8px 9px; font-size: .9rem; } .topbar-inner { gap: 14px; } }
+@media (max-width: 1240px) {
   .icon-btn.menu-btn { display: inline-grid; }
   .nav { position: absolute; top: 64px; left: 0; right: 0; flex-direction: column; background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px 16px; display: none; box-shadow: var(--shadow); }
   .nav.open { display: flex; }
@@ -703,3 +705,36 @@ html[lang="ar"] h1, html[lang="ar"] h2, html[lang="ar"] h3 { letter-spacing: 0; 
 .note-ink { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
 .note-ink svg { width: 12px; height: 12px; }
 @media (max-width: 600px) { .annot-pages { padding: 8px; } .annot-bar { gap: 6px; padding: 6px; } .annot-bar button { width: 34px; height: 34px; } .ab-status { width: 100%; } }
+
+/* ---------- Onglets Notes / Assistant + discussion IA ---------- */
+.vn-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--surface-2); }
+.vn-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: .88rem; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+.vn-tabs button svg { width: 16px; height: 16px; }
+.vn-tabs button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.vn-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.vn-pane[hidden] { display: none; }
+.vn-pane .vn-head { min-height: 18px; justify-content: flex-end; }
+.chat { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.chat-msgs { flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px; }
+.msg { max-width: 94%; border-radius: 14px; padding: 10px 12px; font-size: .92rem; line-height: 1.55; }
+.msg-body > :first-child { margin-top: 0; } .msg-body > :last-child { margin-bottom: 0; }
+.msg-body p { margin: 0 0 8px; } .msg-body ul, .msg-body ol { margin: 4px 0 8px; padding-inline-start: 20px; } .msg-body h4 { margin: 10px 0 6px; font-size: .95rem; }
+.msg-body code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
+.msg-user { align-self: flex-end; background: var(--primary); color: #fff; border-end-end-radius: 4px; white-space: pre-wrap; }
+.msg-ai { align-self: flex-start; background: var(--surface-2); border-end-start-radius: 4px; }
+.msg-ai + .msg-ai { margin-top: -4px; }
+.msg-err { align-self: flex-start; background: var(--danger-50, #fee2e2); color: var(--danger, #b91c1c); }
+.msg-wait .msg-body::after { content: ""; display: inline-block; width: 14px; height: 14px; margin-inline-start: 8px; vertical-align: -2px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+.msg-acts { display: flex; gap: 12px; margin-top: 6px; font-size: .8rem; }
+.msg-acts .link-btn { padding: 0; }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-quick[hidden] { display: none; }
+.chat-quick .chip { font-size: .8rem; text-align: start; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-form textarea { flex: 1; resize: none; min-height: 44px; max-height: 140px; font: inherit; padding: 10px 12px; line-height: 1.4; }
+.chat-form .btn { height: 44px; width: 44px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
+.chat-form .btn svg { width: 18px; height: 18px; }
+[dir="rtl"] .chat-form .btn svg { transform: scaleX(-1); }
+.chat-foot { display: flex; flex-wrap: wrap; gap: 0 4px; }
+.assistant-card { display: flex; flex-direction: column; padding: 16px; height: calc(100vh - 64px - 200px); min-height: 460px; }
+@media (max-width: 900px) { .assistant-card { height: 70vh; } }
