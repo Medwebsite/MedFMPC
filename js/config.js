@@ -43,10 +43,8 @@ window.APP_CONFIG = {
   // Une clé API Google la rendrait lisible par tout le monde.
   googleApiKey: "",
 
-  // Clé Google pour le STYLO sur les PDF (sert uniquement à ouvrir un
-  // fichier dans le site, jamais à lister les dossiers).
-  // Crée-la sur console.cloud.google.com (API « Google Drive API »),
-  // limitée au site https://medwebsite.github.io/* . Laisse vide = pas de stylo.
+  // Facultatif : le stylo sur les PDF passe par l'Edge Function « fichier »
+  // de Supabase. Cette clé Google ne sert que si tu veux t'en passer.
   googleFichiersKey: "",
 
   // --- Filières, années & semestres --------------------------------
