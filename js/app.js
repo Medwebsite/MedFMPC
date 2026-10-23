@@ -643,7 +643,10 @@
       return;
     }
     if (!Drive.canList(currentId)) {
-      zone.innerHTML = `<section class="card explorer"><iframe class="embed-folder" src="${Drive.embedFolderUrl(currentId)}" title="Dossier Drive"></iframe></section>`;
+      // Jamais d'affichage direct du Drive : seule la liste protégée (importée par l'admin) est montrée
+      zone.innerHTML = emptyState("Liste des cours pas encore disponible", isAdmin()
+        ? `Importe le fichier <code>drive-import.json</code> dans <a href="#/admin?tab=drive">Espace admin → Liaison Drive</a>.`
+        : "Les cours de ce semestre arrivent bientôt. Reviens un peu plus tard.", I.drive);
       return;
     }
     let items;
