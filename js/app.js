@@ -57,6 +57,8 @@
 
   /* ------------------------------ icônes ------------------------------ */
   const I = {
+    spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>',
+    send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
     folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.6c.6 0 1.2.25 1.6.7l1.2 1.3h6.6A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>',
     file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
     pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 13.5h7M8.5 16.5h5"/></svg>',
@@ -955,15 +957,22 @@
         <div class="viewer-title"><b data-i18n-skip>${esc(info.name)}</b><small class="muted" data-i18n-skip>${esc(contexte)}</small></div>
         <div class="viewer-acts">
           ${isNative ? "" : `<a class="btn btn-sm btn-ghost" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger">${I.dl}<span>Télécharger</span></a>`}
-          <button class="btn btn-sm btn-soft" id="vw-toggle" aria-expanded="true">${I.edit}<span>Mes notes</span></button>
+          <button class="btn btn-sm btn-soft" id="vw-toggle" aria-expanded="true">${I.edit}<span>Notes & IA</span></button>
         </div>
       </div>
       <div class="viewer-body">
         <div class="viewer-doc">${canAnnot ? `<div class="annot" id="annot"></div>` : iframeHtml}</div>
         <aside class="viewer-notes" id="vw-notes">
-          <div class="vn-head"><b>Mes notes</b><span class="small muted" id="vn-status"></span></div>
-          <textarea id="vn-text" class="input" dir="auto" maxlength="20000" disabled placeholder="${esc(T("Écris tes notes ici… Elles sont enregistrées automatiquement."))}"></textarea>
-          <div class="vn-foot small muted">${I.lock}<span>Privées : toi seul peux les voir.</span></div>
+          <div class="vn-tabs" role="tablist">
+            <button type="button" role="tab" data-vtab="notes" class="on" aria-selected="true">${I.edit}<span>Mes notes</span></button>
+            <button type="button" role="tab" data-vtab="ia" aria-selected="false">${I.spark}<span>Assistant IA</span></button>
+          </div>
+          <div class="vn-pane" data-pane="notes">
+            <div class="vn-head"><span class="small muted" id="vn-status"></span></div>
+            <textarea id="vn-text" class="input" dir="auto" maxlength="20000" disabled placeholder="${esc(T("Écris tes notes ici… Elles sont enregistrées automatiquement."))}"></textarea>
+            <div class="vn-foot small muted">${I.lock}<span>Privées : toi seul peux les voir.</span></div>
+          </div>
+          <div class="vn-pane" data-pane="ia" hidden></div>
         </aside>
       </div>
     </div>`;
@@ -1013,7 +1022,128 @@
     ta.addEventListener("input", () => { setStatus("Modifications non enregistrées"); clearTimeout(timer); timer = setTimeout(save, 900); });
     ta.addEventListener("blur", save);
     route.flush = () => Promise.all([save(), annot ? annot.flush() : null]);
+
+    // Onglets du panneau + assistant IA (lit le PDF / l'image ouverts)
+    let chatMonte = false;
+    $$("[data-vtab]", viewer).forEach((b) => (b.onclick = () => {
+      $$("[data-vtab]", viewer).forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-selected", String(x === b)); });
+      $$(".vn-pane", viewer).forEach((pn) => (pn.hidden = pn.dataset.pane !== b.dataset.vtab));
+      if (b.dataset.vtab === "ia" && !chatMonte) {
+        chatMonte = true;
+        const lisible = kind === "pdf" || kind === "img";
+        mountChat($(".vn-pane[data-pane=ia]", viewer), {
+          cle: "fichier:" + id,
+          fichier: lisible ? id : "",
+          intro: lisible
+            ? `${T("Je lis ce document avec toi.")} ${T("Demande-moi de le résumer, d'expliquer une notion ou de te faire des QCM.")}`
+            : T("Je ne peux pas lire ce type de fichier (PowerPoint, Word…), mais tu peux me poser tes questions librement."),
+          rapides: lisible ? ["Résume ce cours", "Explique simplement les notions difficiles", "Fais-moi 5 QCM sur ce cours", "Les points clés à retenir pour l'examen"] : [],
+          ajouterNote: (txt) => {
+            ta.value = (ta.value.trim() ? ta.value.trimEnd() + "\n\n" : "") + "— " + T("Assistant IA") + " —\n" + txt;
+            ta.dispatchEvent(new Event("input"));
+            toast(T("Ajouté à tes notes ✓"));
+          },
+        });
+      }
+    }));
     window.addEventListener("beforeunload", () => { if (ta.value !== saved) save(); if (annot) annot.flush(); }, { once: true });
+  }
+
+  /* ---------------- Assistant IA (Gemini) ---------------- */
+  const conversations = new Map(); // garde la discussion pendant la session
+  // Mini-Markdown sûr (le texte est échappé avant la mise en forme)
+  function md(src) {
+    const inline = (t) => esc(t)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>");
+    const out = []; let list = null;
+    const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+    for (const raw of String(src).split("\n")) {
+      const l = raw.trimEnd();
+      let m;
+      if ((m = l.match(/^\s*#{1,6}\s+(.*)$/))) { close(); out.push(`<h4>${inline(m[1])}</h4>`); }
+      else if ((m = l.match(/^\s*[-*•]\s+(.*)$/))) { if (list !== "ul") { close(); out.push("<ul>"); list = "ul"; } out.push(`<li>${inline(m[1])}</li>`); }
+      else if ((m = l.match(/^\s*\d+[.)]\s+(.*)$/))) { if (list !== "ol") { close(); out.push("<ol>"); list = "ol"; } out.push(`<li>${inline(m[1])}</li>`); }
+      else if (!l.trim()) close();
+      else { close(); out.push(`<p>${inline(l)}</p>`); }
+    }
+    close();
+    return out.join("");
+  }
+
+  function mountChat(box, { cle, fichier = "", intro, rapides = [], ajouterNote = null }) {
+    const hist = conversations.get(cle) || [];
+    conversations.set(cle, hist);
+    box.innerHTML = `<div class="chat">
+      <div class="chat-msgs" aria-live="polite"></div>
+      <div class="chat-quick"></div>
+      <form class="chat-form">
+        <textarea class="input" rows="2" dir="auto" maxlength="4000" placeholder="${esc(T("Pose ta question…"))}"></textarea>
+        <button class="btn" type="submit" title="${esc(T("Envoyer"))}" aria-label="${esc(T("Envoyer"))}">${I.send}</button>
+      </form>
+      <div class="chat-foot small muted"><span class="chat-left"></span><span>${esc(T("Gemini peut se tromper : vérifie avec ton cours."))}</span></div>
+    </div>`;
+    const msgs = $(".chat-msgs", box), form = $(".chat-form", box), input = $("textarea", form), left = $(".chat-left", box), quick = $(".chat-quick", box);
+    let busy = false;
+    const setLeft = (n) => { if (typeof n === "number") left.textContent = `${n} ${T(n > 1 ? "questions restantes aujourd'hui" : "question restante aujourd'hui")} · `; };
+    if (Store.iaRestant) Store.iaRestant().then(setLeft).catch(() => {});
+
+    function bulle(m) {
+      const el = document.createElement("div");
+      el.className = "msg " + (m.role === "user" ? "msg-user" : m.role === "error" ? "msg-err" : "msg-ai");
+      if (m.role === "model") {
+        el.innerHTML = `<div class="msg-body" dir="auto" data-i18n-skip>${md(m.text)}</div>
+          <div class="msg-acts"><button type="button" class="link-btn" data-copy>${esc(T("Copier"))}</button>${ajouterNote ? `<button type="button" class="link-btn" data-note>${esc(T("Ajouter à mes notes"))}</button>` : ""}</div>`;
+        $("[data-copy]", el).onclick = async () => { try { await navigator.clipboard.writeText(m.text); toast(T("Copié ✓")); } catch (e) { toast(T("Copie impossible"), true); } };
+        const nb = $("[data-note]", el); if (nb) nb.onclick = () => ajouterNote(m.text);
+      } else {
+        el.innerHTML = `<div class="msg-body" dir="auto" ${m.role === "user" ? "data-i18n-skip" : ""}>${esc(m.text)}</div>`;
+      }
+      msgs.appendChild(el);
+      msgs.scrollTop = msgs.scrollHeight;
+      return el;
+    }
+    bulle({ role: "intro", text: intro });
+    hist.forEach(bulle);
+    quick.innerHTML = rapides.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q)}</button>`).join("");
+    quick.hidden = !rapides.length || hist.length > 0;
+
+    async function envoyer(texte) {
+      texte = texte.trim();
+      if (!texte || busy) return;
+      if (!Store.askIA) { toast(T("L'assistant n'est pas disponible ici."), true); return; }
+      busy = true; quick.hidden = true; input.value = "";
+      const m = { role: "user", text: texte };
+      hist.push(m); bulle(m);
+      const wait = bulle({ role: "intro", text: T("L'assistant réfléchit…") }); wait.classList.add("msg-wait");
+      try {
+        const r = await Store.askIA(hist.map((x) => ({ role: x.role, text: x.text })), fichier);
+        wait.remove();
+        const rep = { role: "model", text: r.texte };
+        hist.push(rep); bulle(rep); setLeft(r.restant);
+      } catch (e) {
+        wait.remove();
+        hist.pop(); // la question n'a pas eu de réponse : on la retire de l'historique
+        bulle({ role: "error", text: e.message || T("L'assistant n'a pas pu répondre. Réessaie.") });
+        if (typeof e.restant === "number") setLeft(e.restant);
+        input.value = texte;
+      } finally { busy = false; input.focus(); }
+    }
+    form.onsubmit = (e) => { e.preventDefault(); envoyer(input.value); };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); envoyer(input.value); } });
+    quick.onclick = (e) => { const b = e.target.closest("[data-q]"); if (b) envoyer(T(b.dataset.q)); };
+  }
+
+  function pageAssistant() {
+    main.innerHTML = `
+      <div class="page-head"><div><h1>Assistant IA</h1><p>Pose tes questions de cours à Gemini. Pour qu'il lise un cours, ouvre un PDF dans Leçons puis choisis l'onglet « Assistant IA ».</p></div></div>
+      <section class="card assistant-card" id="ia-box"></section>`;
+    mountChat($("#ia-box"), {
+      cle: "general",
+      intro: T("Bonjour ! Je suis ton assistant de révision. Pose-moi une question de cours, demande une explication ou un QCM."),
+      rapides: ["Explique-moi le cycle cardiaque simplement", "Fais-moi 5 QCM d'anatomie du cœur", "Quelle différence entre artère et veine ?", "Comment bien réviser un module en 1 semaine ?"],
+    });
   }
 
   async function pageNotes() {
@@ -1533,7 +1663,7 @@
     $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === page));
     $("#nav").classList.remove("open");
     $("#menu-btn").setAttribute("aria-expanded", "false");
-    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité", fichier: "Document", notes: "Mes notes" };
+    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité", fichier: "Document", notes: "Mes notes", assistant: "Assistant IA" };
     document.title = T(`${titles[page] || "MedFMPC"} — ${CFG.nomSite}`);
     const u = Store.user();
     renderHeader();
@@ -1559,6 +1689,7 @@
       else if (page === "confidentialite") pageConfidentialite();
       else if (page === "fichier") await pageFichier(parts[1]);
       else if (page === "notes") await pageNotes();
+      else if (page === "assistant") pageAssistant();
       else notFound();
     } catch (e) {
       console.error(e);
@@ -1610,6 +1741,8 @@
     $("#nav-admin").hidden = !(u && (u.role === "admin" || u.role === "editor"));
     const nn = $("#nav-notes");
     if (nn) nn.hidden = !(u && u.acces);
+    const ni = $("#nav-ia");
+    if (ni) ni.hidden = !(u && u.acces);
     const na = $("#nav-annee");
     if (na) {
       na.hidden = !(u && !u.full && u.acces);
