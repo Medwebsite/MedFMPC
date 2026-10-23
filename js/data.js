@@ -231,6 +231,17 @@
         const { error } = await sb.from("notes").delete().eq("user_id", currentUser.id).eq("fichier", fichier);
         if (error) throw new Error(traduire(error.message));
       },
+      // --- Assistant IA (Edge Function « assistant », Gemini) ---
+      async askIA(messages, fichier) {
+        const { data, error } = await sb.functions.invoke("assistant", { body: { messages, fichier } });
+        if (error) {
+          let msg = error.message, restant;
+          try { const c = await error.context.json(); msg = c.error || msg; restant = c.restant; } catch (e) {}
+          const err = new Error(msg); err.restant = restant; throw err;
+        }
+        return data;
+      },
+      async iaRestant() { const { data, error } = await sb.rpc("ia_restant"); if (error) throw error; return data; },
       // --- Contenu d'un fichier (PDF, image) pour l'afficher dans le site ---
       // Passe par l'Edge Function « fichier » qui vérifie l'accès à l'année.
       // Le fichier est gardé en cache dans le navigateur pour ne pas le retélécharger.
@@ -532,6 +543,13 @@
       },
       async listNotes() { return (db.notes || []).filter((n) => n.user_id === currentUser.id).sort((a, b) => b.updated_at.localeCompare(a.updated_at)); },
       async deleteNote(fichier) { db.notes = (db.notes || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier)); save(); },
+      // Assistant (aperçu : réponse d'exemple)
+      async askIA(messages, fichier) {
+        await new Promise((r) => setTimeout(r, 500));
+        const q = messages[messages.length - 1].text;
+        return { texte: `**Aperçu** — sur le vrai site, Gemini répond ici${fichier ? " en lisant le document ouvert" : ""}.\n\nTa question : *${q}*\n\n- Exemple de liste\n- **Mot clé** important`, restant: 19 };
+      },
+      async iaRestant() { return 20; },
       async getAnnot(fichier) { return (db.annots || []).find((n) => n.user_id === currentUser.id && n.fichier === fichier) || null; },
       async saveAnnot(fichier, data, { nom, contexte }) {
         db.annots = (db.annots || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier));
