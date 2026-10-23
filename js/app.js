@@ -946,7 +946,7 @@
     const kind = fileKind(it.mimeType, it.name)[0];
     // Stylo / surligneur : PDF et images, si une clé Google « fichiers » est configurée
     const fkey = CFG.googleFichiersKey;
-    const canAnnot = !!(fkey && window.Annot && (kind === "pdf" || kind === "img"));
+    const canAnnot = !!(window.Annot && (kind === "pdf" || kind === "img") && (Store.fetchFichier || fkey));
     const iframeHtml = `<div class="spinner"></div><iframe src="${esc(Drive.previewUrl(id))}" title="Aperçu du document" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe>`;
     document.title = `${info.name} — ${CFG.nomSite}`;
     main.innerHTML = `<div class="viewer" id="viewer">
@@ -976,7 +976,9 @@
       let adata = null;
       try { const a = await Store.getAnnot(id); adata = a && a.data; } catch (e) { toast(e.message, true); }
       annot = await window.Annot.mount($("#annot"), {
-        src: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(fkey)}`,
+        load: Store.fetchFichier
+          ? () => Store.fetchFichier(id)
+          : () => fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(fkey)}`),
         kind, data: adata, t: T,
         onSave: (d) => Store.saveAnnot(id, d, { nom: info.name, contexte }),
         onError: (e) => toast(e.message, true),
