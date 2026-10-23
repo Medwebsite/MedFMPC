@@ -43,6 +43,12 @@ window.APP_CONFIG = {
   // Une clé API Google la rendrait lisible par tout le monde.
   googleApiKey: "",
 
+  // Clé Google pour le STYLO sur les PDF (sert uniquement à ouvrir un
+  // fichier dans le site, jamais à lister les dossiers).
+  // Crée-la sur console.cloud.google.com (API « Google Drive API »),
+  // limitée au site https://medwebsite.github.io/* . Laisse vide = pas de stylo.
+  googleFichiersKey: "",
+
   // --- Filières, années & semestres --------------------------------
   // Pour chaque semestre, colle l'ID du dossier Drive correspondant.
   // L'ID est la partie après /folders/ dans le lien :
