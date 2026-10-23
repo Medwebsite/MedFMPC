@@ -943,6 +943,11 @@
     const items = await Drive.list(info.parent);
     const it = items.find((x) => x.id === id) || { id, name: info.name, mimeType: "" };
     const isNative = (it.mimeType || "").startsWith("application/vnd.google-apps");
+    const kind = fileKind(it.mimeType, it.name)[0];
+    // Stylo / surligneur : PDF et images, si une clé Google « fichiers » est configurée
+    const fkey = CFG.googleFichiersKey;
+    const canAnnot = !!(fkey && window.Annot && (kind === "pdf" || kind === "img"));
+    const iframeHtml = `<div class="spinner"></div><iframe src="${esc(Drive.previewUrl(id))}" title="Aperçu du document" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe>`;
     document.title = `${info.name} — ${CFG.nomSite}`;
     main.innerHTML = `<div class="viewer" id="viewer">
       <div class="viewer-head">
@@ -954,7 +959,7 @@
         </div>
       </div>
       <div class="viewer-body">
-        <div class="viewer-doc"><div class="spinner"></div><iframe src="${esc(Drive.previewUrl(id))}" title="Aperçu du document" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe></div>
+        <div class="viewer-doc">${canAnnot ? `<div class="annot" id="annot"></div>` : iframeHtml}</div>
         <aside class="viewer-notes" id="vw-notes">
           <div class="vn-head"><b>Mes notes</b><span class="small muted" id="vn-status"></span></div>
           <textarea id="vn-text" class="input" dir="auto" maxlength="20000" disabled placeholder="${esc(T("Écris tes notes ici… Elles sont enregistrées automatiquement."))}"></textarea>
@@ -964,8 +969,21 @@
     </div>`;
 
     const viewer = $("#viewer"), ta = $("#vn-text"), status = $("#vn-status");
-    const frame = $(".viewer-doc iframe", viewer);
-    frame.addEventListener("load", () => { const sp = $(".viewer-doc .spinner", viewer); if (sp) sp.remove(); });
+    const wireFrame = () => { const fr = $(".viewer-doc iframe", viewer); if (fr) fr.addEventListener("load", () => { const sp = $(".viewer-doc .spinner", viewer); if (sp) sp.remove(); }); };
+    wireFrame();
+    let annot = null;
+    if (canAnnot) {
+      let adata = null;
+      try { const a = await Store.getAnnot(id); adata = a && a.data; } catch (e) { toast(e.message, true); }
+      annot = await window.Annot.mount($("#annot"), {
+        src: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(fkey)}`,
+        kind, data: adata, t: T,
+        onSave: (d) => Store.saveAnnot(id, d, { nom: info.name, contexte }),
+        onError: (e) => toast(e.message, true),
+        // si le fichier ne peut pas être chargé ici, on revient à l'aperçu Google
+        onFail: () => { const box = $(".viewer-doc", viewer); if (box) { box.innerHTML = iframeHtml; wireFrame(); } },
+      });
+    }
     $("#vw-toggle").onclick = () => {
       const hidden = viewer.classList.toggle("no-notes");
       $("#vw-toggle").setAttribute("aria-expanded", String(!hidden));
@@ -992,12 +1010,20 @@
     ta.disabled = false;
     ta.addEventListener("input", () => { setStatus("Modifications non enregistrées"); clearTimeout(timer); timer = setTimeout(save, 900); });
     ta.addEventListener("blur", save);
-    route.flush = save;
-    window.addEventListener("beforeunload", () => { if (ta.value !== saved) save(); }, { once: true });
+    route.flush = () => Promise.all([save(), annot ? annot.flush() : null]);
+    window.addEventListener("beforeunload", () => { if (ta.value !== saved) save(); if (annot) annot.flush(); }, { once: true });
   }
 
   async function pageNotes() {
-    const notes = await Store.listNotes();
+    const [txt, ann] = await Promise.all([Store.listNotes(), Store.listAnnots().catch(() => [])]);
+    const byId = new Map();
+    txt.forEach((n) => byId.set(n.fichier, { ...n }));
+    ann.forEach((a) => {
+      const n = byId.get(a.fichier);
+      if (n) { n.annote = true; if (a.updated_at > n.updated_at) n.updated_at = a.updated_at; }
+      else byId.set(a.fichier, { fichier: a.fichier, nom: a.nom, contexte: a.contexte, contenu: "", updated_at: a.updated_at, annote: true });
+    });
+    const notes = [...byId.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     main.innerHTML = `
       <div class="page-head"><div><h1>Mes notes</h1><p>Toutes les notes que tu as prises sur les cours. Elles sont privées.</p></div></div>
       ${notes.length ? `<div class="notes-list">${notes.map((n) => `
@@ -1006,15 +1032,16 @@
             <span class="fi fi-doc">${I.edit}</span>
             <span class="note-txt"><b data-i18n-skip>${esc(n.nom || "Document")}</b>
               ${n.contexte ? `<small class="muted" data-i18n-skip>${esc(n.contexte)}</small>` : ""}
-              <span class="note-snip" dir="auto" data-i18n-skip>${esc(n.contenu.slice(0, 220))}${n.contenu.length > 220 ? "…" : ""}</span>
+              ${n.annote ? `<span class="badge note-ink">${I.edit} ${esc(T("Annoté au stylo"))}</span>` : ""}
+              ${n.contenu ? `<span class="note-snip" dir="auto" data-i18n-skip>${esc(n.contenu.slice(0, 220))}${n.contenu.length > 220 ? "…" : ""}</span>` : ""}
               <small class="muted">${esc(T("Modifiée"))} ${timeAgo(n.updated_at)}</small></span>
           </a>
           <button class="icon-btn" data-del-note="${esc(n.fichier)}" title="Supprimer la note" aria-label="Supprimer la note" style="color:var(--danger)">${I.trash}</button>
         </article>`).join("")}</div>`
         : emptyState("Aucune note pour l'instant", "Ouvre un fichier dans Leçons et écris dans « Mes notes » : tout est enregistré ici automatiquement.<br><br><a class=\"btn\" href=\"#/lecons\">Voir les leçons</a>", I.edit)}`;
     $$("[data-del-note]").forEach((b) => (b.onclick = async () => {
-      if (!(await confirmBox("Supprimer cette note ? Cette action est définitive."))) return;
-      try { await Store.deleteNote(b.dataset.delNote); toast("Note supprimée"); route(); } catch (e) { toast(e.message, true); }
+      if (!(await confirmBox("Supprimer cette note et les annotations au stylo de ce fichier ? Cette action est définitive."))) return;
+      try { await Promise.all([Store.deleteNote(b.dataset.delNote), Store.deleteAnnot(b.dataset.delNote)]); toast("Note supprimée"); route(); } catch (e) { toast(e.message, true); }
     }));
   }
 
