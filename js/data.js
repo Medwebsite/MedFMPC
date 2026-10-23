@@ -211,6 +211,27 @@
         if (error) throw new Error(traduire(error.message));
       },
 
+      // --- Notes personnelles (privées : chaque étudiant ne voit que les siennes) ---
+      async getNote(fichier) {
+        const { data, error } = await sb.from("notes").select("contenu,updated_at").eq("user_id", currentUser.id).eq("fichier", fichier).maybeSingle();
+        if (error) throw new Error(traduire(error.message));
+        return data;
+      },
+      async saveNote(fichier, { contenu, nom, contexte }) {
+        if (!contenu.trim()) return this.deleteNote(fichier);
+        const { error } = await sb.from("notes").upsert({ user_id: currentUser.id, fichier, nom, contexte, contenu, updated_at: new Date().toISOString() });
+        if (error) throw new Error(traduire(error.message));
+      },
+      async listNotes() {
+        const { data, error } = await sb.from("notes").select("fichier,nom,contexte,contenu,updated_at").eq("user_id", currentUser.id).order("updated_at", { ascending: false });
+        if (error) throw new Error(traduire(error.message));
+        return data || [];
+      },
+      async deleteNote(fichier) {
+        const { error } = await sb.from("notes").delete().eq("user_id", currentUser.id).eq("fichier", fichier);
+        if (error) throw new Error(traduire(error.message));
+      },
+
       async list(table, filters = {}) {
         let q = sb.from(table).select("*");
         Object.entries(filters).forEach(([k, v]) => {
@@ -461,6 +482,15 @@
         }));
       },
       async setRole(id, role) { const m = db.members.find((x) => x.id === id); if (m) m.role = role; save(); },
+      // Notes (aperçu : gardées dans ce navigateur)
+      async getNote(fichier) { return (db.notes || []).find((n) => n.user_id === currentUser.id && n.fichier === fichier) || null; },
+      async saveNote(fichier, { contenu, nom, contexte }) {
+        db.notes = (db.notes || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier));
+        if (contenu.trim()) db.notes.push({ user_id: currentUser.id, fichier, nom, contexte, contenu, updated_at: new Date().toISOString() });
+        save();
+      },
+      async listNotes() { return (db.notes || []).filter((n) => n.user_id === currentUser.id).sort((a, b) => b.updated_at.localeCompare(a.updated_at)); },
+      async deleteNote(fichier) { db.notes = (db.notes || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier)); save(); },
       reset() { db = seed(); save(); },
     };
   }
@@ -581,6 +611,16 @@
     downloadUrl: (it) => (it.mimeType || "").startsWith("application/vnd.google-apps")
       ? Drive.viewUrl(it)
       : `https://drive.google.com/uc?export=download&id=${it.id}`,
+    // Aperçu d'un fichier, affiché DANS le site
+    previewUrl: (id) => `https://drive.google.com/file/d/${id}/preview`,
+    info: (id) => snapIndex.get(id) || null,
+    // Dossiers parents d'un fichier : { root: dossier du semestre, folders: [ids du haut vers le bas] }
+    trail(id) {
+      const chain = []; const cur = snapIndex.get(id);
+      let pid = cur ? cur.parent : null;
+      while (pid && snapIndex.has(pid)) { chain.unshift(pid); pid = snapIndex.get(pid).parent; }
+      return { root: pid, folders: chain };
+    },
     embedFolderUrl: (id) => `https://drive.google.com/embeddedfolderview?id=${id}#list`,
     folderUrl: (id) => `https://drive.google.com/drive/folders/${id}`,
   };
