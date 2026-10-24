@@ -57,6 +57,8 @@
 
   /* ------------------------------ icônes ------------------------------ */
   const I = {
+    expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+    shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>',
     spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>',
     send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
     folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.6c.6 0 1.2.25 1.6.7l1.2 1.3h6.6A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>',
@@ -957,6 +959,7 @@
         <div class="viewer-title"><b data-i18n-skip>${esc(info.name)}</b><small class="muted" data-i18n-skip>${esc(contexte)}</small></div>
         <div class="viewer-acts">
           ${isNative ? "" : `<a class="btn btn-sm btn-ghost" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger">${I.dl}<span>Télécharger</span></a>`}
+          <button class="btn btn-sm btn-ghost" id="vw-full" aria-pressed="false" title="Plein écran">${I.expand}<span>Plein écran</span></button>
           <button class="btn btn-sm btn-soft" id="vw-toggle" aria-expanded="true">${I.edit}<span>Notes & IA</span></button>
         </div>
       </div>
@@ -1021,7 +1024,32 @@
     ta.disabled = false;
     ta.addEventListener("input", () => { setStatus("Modifications non enregistrées"); clearTimeout(timer); timer = setTimeout(save, 900); });
     ta.addEventListener("blur", save);
-    route.flush = () => Promise.all([save(), annot ? annot.flush() : null]);
+    // Plein écran : le document (avec le stylo), les notes et l'assistant restent utilisables
+    const fsBtn = $("#vw-full");
+    const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+    const setFull = (on) => {
+      viewer.classList.toggle("vfull", on);
+      document.body.classList.toggle("no-scroll", on);
+      fsBtn.innerHTML = `${on ? I.shrink : I.expand}<span>${esc(T(on ? "Quitter le plein écran" : "Plein écran"))}</span>`;
+      fsBtn.title = T(on ? "Quitter le plein écran" : "Plein écran");
+      fsBtn.setAttribute("aria-pressed", String(on));
+      setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+    };
+    const quitterFull = async () => {
+      if (viewer.classList.contains("vfull")) setFull(false);
+      try { if (fsEl()) await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); } catch (e) {}
+    };
+    fsBtn.onclick = async () => {
+      if (viewer.classList.contains("vfull")) return quitterFull();
+      setFull(true);
+      try { if (viewer.requestFullscreen) await viewer.requestFullscreen(); else if (viewer.webkitRequestFullscreen) viewer.webkitRequestFullscreen(); } catch (e) { /* plein écran « dans la page » seulement */ }
+    };
+    const surChangement = () => { if (!fsEl() && viewer.classList.contains("vfull") && document.body.contains(viewer)) setFull(false); };
+    document.addEventListener("fullscreenchange", surChangement);
+    document.addEventListener("webkitfullscreenchange", surChangement);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.contains(viewer) && viewer.classList.contains("vfull")) quitterFull(); });
+
+    route.flush = () => Promise.all([save(), annot ? annot.flush() : null, quitterFull()]);
 
     // Onglets du panneau + assistant IA (lit le PDF / l'image ouverts)
     let chatMonte = false;
