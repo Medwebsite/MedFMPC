@@ -12,12 +12,14 @@
   const WIDTH = { pen: 0.0028, hl: 0.02 };
   const ERASE_R = 0.015;
   const ZOOMS = [0.6, 0.8, 1, 1.25, 1.5, 2];
+  const TXT_F = 0.02; // taille du texte (part de la largeur de la page)
 
   const ICON = {
     hand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>',
     pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
     hl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>',
     eraser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21"/><path d="M22 21H7M5 11l9 9"/></svg>',
+    text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M12 9v7"/></svg>',
     undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
     minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M21 21l-4.3-4.3"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6M21 21l-4.3-4.3"/></svg>',
@@ -73,6 +75,7 @@
     const data = opts.data && opts.data.pages ? opts.data : { v: 1, pages: {} };
     const st = { tool: "hand", color: COLORS[0], zoom: 2 };
     const history = [];
+    let editor = null; // zone de texte en cours d'écriture { p, s, ta, commit() }
     let saveTimer = null;
 
     root.innerHTML = `
@@ -81,6 +84,7 @@
           <button type="button" data-tool="hand" title="${T("Défiler")}" aria-label="${T("Défiler")}">${ICON.hand}</button>
           <button type="button" data-tool="pen" title="${T("Stylo")}" aria-label="${T("Stylo")}">${ICON.pen}</button>
           <button type="button" data-tool="hl" title="${T("Surligneur")}" aria-label="${T("Surligneur")}">${ICON.hl}</button>
+          <button type="button" data-tool="text" title="${T("Zone de texte")}" aria-label="${T("Zone de texte")}">${ICON.text}</button>
           <button type="button" data-tool="eraser" title="${T("Gomme")}" aria-label="${T("Gomme")}">${ICON.eraser}</button>
         </div>
         <div class="ab-group ab-colors">${COLORS.map((c) => `<button type="button" class="ab-color" data-color="${c}" style="--c:${c}" title="${T("Couleur")}" aria-label="${T("Couleur")} ${c}"></button>`).join("")}</div>
@@ -109,7 +113,7 @@
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.tool) st.tool = b.dataset.tool;
       if (b.dataset.color) { st.color = b.dataset.color; if (st.tool === "hand" || st.tool === "eraser") st.tool = "pen"; }
-      if (b.dataset.act === "undo") undo();
+      if (b.dataset.act === "undo") { if (editor) editor.commit(); undo(); }
       if (b.dataset.act === "zin" && st.zoom < ZOOMS.length - 1) { st.zoom++; applyZoom(); }
       if (b.dataset.act === "zout" && st.zoom > 0) { st.zoom--; applyZoom(); }
       refreshBar();
@@ -166,12 +170,14 @@
       return { flush: () => Promise.resolve() };
     }
 
-    pagesEl.innerHTML = pages.map((p) => `<div class="ap" data-n="${p.n}" style="aspect-ratio:${1 / p.ratio}"><canvas class="ap-base"></canvas><canvas class="ap-ink"></canvas><span class="ap-num">${p.n}</span></div>`).join("");
+    pagesEl.innerHTML = pages.map((p) => `<div class="ap" data-n="${p.n}" style="aspect-ratio:${1 / p.ratio}"><canvas class="ap-base"></canvas><canvas class="ap-ink"></canvas><div class="ap-texts" data-i18n-skip></div><span class="ap-num">${p.n}</span></div>`).join("");
     pages.forEach((p) => {
       p.el = pagesEl.querySelector(`.ap[data-n="${p.n}"]`);
       p.base = p.el.querySelector(".ap-base");
       p.ink = p.el.querySelector(".ap-ink");
+      p.texts = p.el.querySelector(".ap-texts");
       p.rendered = 0;
+      renderTexts(p);
     });
 
     const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
@@ -179,6 +185,7 @@
       const w = p.el.clientWidth * dpr();
       if (!w || Math.abs(p.rendered - w) < 2) return;
       p.rendered = w;
+      syncPw(p);
       await p.draw(p.base, w);
       p.ink.width = p.base.width; p.ink.height = p.base.height;
       redrawInk(p);
@@ -186,8 +193,100 @@
     function redrawInk(p) {
       const ctx = p.ink.getContext("2d");
       ctx.clearRect(0, 0, p.ink.width, p.ink.height);
-      (data.pages[p.n] || []).forEach((s) => drawStroke(ctx, s, p.ink.width, p.ink.height));
+      (data.pages[p.n] || []).forEach((s) => { if (s.t !== "text") drawStroke(ctx, s, p.ink.width, p.ink.height); });
     }
+
+    // ---- Zones de texte (calque HTML au-dessus du dessin) ----
+    function renderTexts(p) {
+      p.texts.innerHTML = "";
+      (data.pages[p.n] || []).forEach((s) => {
+        if (s.t !== "text" || (editor && editor.s === s)) return;
+        const d = document.createElement("div");
+        d.className = "ap-text"; d.dir = "auto";
+        d.style.left = s.x * 100 + "%"; d.style.top = s.y * 100 + "%";
+        d.style.color = s.c; d.style.fontSize = `max(11px, calc(${s.f} * var(--pw, 800px)))`;
+        d.textContent = s.v; d._s = s;
+        p.texts.appendChild(d);
+      });
+    }
+    const pageWidth = (p) => p.el.clientWidth || 800;
+    function syncPw(p) { p.el.style.setProperty("--pw", pageWidth(p) + "px"); }
+
+    function openEditor(p, s, isNew) {
+      if (editor) editor.commit();
+      const ta = document.createElement("textarea");
+      ta.className = "ap-text ap-text-edit"; ta.dir = "auto"; ta.rows = 1; ta.spellcheck = true;
+      ta.setAttribute("aria-label", T("Zone de texte"));
+      ta.placeholder = T("Écris ici…");
+      ta.value = s.v || "";
+      ta.style.left = s.x * 100 + "%"; ta.style.top = s.y * 100 + "%";
+      ta.style.color = s.c; ta.style.fontSize = `max(16px, calc(${s.f} * var(--pw, 800px)))`;
+      const ed = { p, s, ta, isNew, cancel: false };
+      editor = ed;
+      renderTexts(p);
+      p.texts.appendChild(ta);
+      const fit = () => {
+        const lines = ta.value.split("\n");
+        ta.cols = Math.max(12, Math.min(60, Math.max(...lines.map((l) => l.length)) + 2));
+        ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px";
+      };
+      ta.addEventListener("input", fit);
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); ed.commit(); }
+        else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ed.commit(); }
+      });
+      ed.commit = () => {
+        if (editor !== ed) return;
+        editor = null;
+        const v = ta.value.replace(/\s+$/, "");
+        ta.remove();
+        if (!ed.cancel) {
+          const list = (data.pages[p.n] = data.pages[p.n] || []);
+          if (isNew) {
+            if (v.trim()) { s.v = v; list.push(s); history.push({ n: p.n, added: s }); changed(); }
+          } else if (!v.trim()) {
+            data.pages[p.n] = list.filter((x) => x !== s); history.push({ n: p.n, removed: [s] }); changed();
+          } else if (v !== s.v) {
+            history.push({ n: p.n, edited: s, prev: { v: s.v, x: s.x, y: s.y } }); s.v = v; changed();
+          }
+        }
+        renderTexts(p); refreshBar();
+      };
+      ta.addEventListener("blur", () => setTimeout(ed.commit, 0));
+      fit();
+      try { ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+      setTimeout(() => { if (editor === ed && document.activeElement !== ta) ta.focus({ preventScroll: true }); }, 0);
+    }
+
+    // Déplacer (glisser) ou modifier (toucher) une zone de texte
+    let drag = null;
+    pagesEl.addEventListener("pointerdown", (e) => {
+      const d = e.target.closest && e.target.closest(".ap-texts > div.ap-text");
+      if (!d || st.tool !== "text") return;
+      e.preventDefault();
+      const p = pages.find((x) => x.texts === d.parentNode); if (!p) return;
+      if (editor) editor.commit();
+      try { d.setPointerCapture(e.pointerId); } catch (err) {}
+      drag = { p, s: d._s, d, x0: e.clientX, y0: e.clientY, sx: d._s.x, sy: d._s.y, moved: false };
+    });
+    pagesEl.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const r = drag.p.el.getBoundingClientRect();
+      const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      drag.moved = true;
+      drag.s.x = +Math.max(0, Math.min(0.97, drag.sx + dx / r.width)).toFixed(4);
+      drag.s.y = +Math.max(0, Math.min(0.98, drag.sy + dy / r.height)).toFixed(4);
+      drag.d.style.left = drag.s.x * 100 + "%"; drag.d.style.top = drag.s.y * 100 + "%";
+    });
+    const dragEnd = () => {
+      if (!drag) return;
+      const g = drag; drag = null;
+      if (g.moved) { history.push({ n: g.p.n, edited: g.s, prev: { v: g.s.v, x: g.sx, y: g.sy } }); refreshBar(); changed(); }
+      else openEditor(g.p, g.s, false);
+    };
+    pagesEl.addEventListener("pointerup", dragEnd);
+    pagesEl.addEventListener("pointercancel", () => { if (drag) { drag.s.x = drag.sx; drag.s.y = drag.sy; renderTexts(drag.p); drag = null; } });
     const visible = new Set();
     const io = new IntersectionObserver((entries) => {
       entries.forEach((en) => {
@@ -199,10 +298,12 @@
 
     function applyZoom() {
       pagesEl.style.setProperty("--zoom", ZOOMS[st.zoom]);
+      pages.forEach(syncPw);
       requestAnimationFrame(() => visible.forEach(renderPage));
     }
     applyZoom();
-    let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => visible.forEach(renderPage), 250); });
+    let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { pages.forEach(syncPw); visible.forEach(renderPage); }, 250); });
+    new ResizeObserver(() => pages.forEach(syncPw)).observe(pagesEl);
 
     // ---- Dessin ----
     let cur = null;
@@ -210,14 +311,16 @@
       const r = p.ink.getBoundingClientRect();
       return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
     }
-    function eraseAt(p, x, y) {
+    function eraseAt(p, x, y, e) {
       const list = data.pages[p.n] || [];
       const keep = [], removed = [];
-      list.forEach((s) => (hits(s, x, y, ERASE_R, p.ratio) ? removed : keep).push(s));
+      const sous = new Set();
+      if (e) p.texts.querySelectorAll(".ap-text").forEach((d) => { const r = d.getBoundingClientRect(); if (e.clientX >= r.left - 4 && e.clientX <= r.right + 4 && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4) sous.add(d._s); });
+      list.forEach((s) => ((s.t === "text" ? sous.has(s) : hits(s, x, y, ERASE_R, p.ratio)) ? removed : keep).push(s));
       if (removed.length) {
         data.pages[p.n] = keep;
         history.push({ n: p.n, removed });
-        redrawInk(p); refreshBar(); changed();
+        redrawInk(p); if (removed.some((s) => s.t === "text")) renderTexts(p); refreshBar(); changed();
       }
     }
     pages.forEach((p) => {
@@ -226,7 +329,12 @@
         e.preventDefault();
         try { p.ink.setPointerCapture(e.pointerId); } catch (err) {}
         const [x, y] = pos(p, e);
-        if (st.tool === "eraser") { cur = { p, erase: true }; eraseAt(p, x, y); return; }
+        if (st.tool === "text") {
+          if (editor) { editor.commit(); cur = null; return; } // un clic ailleurs ferme d'abord la zone en cours
+          cur = { p, text: true, x, y };
+          return;
+        }
+        if (st.tool === "eraser") { cur = { p, erase: true }; eraseAt(p, x, y, e); return; }
         const s = { t: st.tool, c: st.tool === "hl" && st.color === COLORS[0] ? COLORS[4] : st.color, w: WIDTH[st.tool], p: [+x.toFixed(4), +y.toFixed(4)] };
         cur = { p, s };
         drawStroke(p.ink.getContext("2d"), s, p.ink.width, p.ink.height);
@@ -234,7 +342,8 @@
       p.ink.addEventListener("pointermove", (e) => {
         if (!cur || cur.p !== p) return;
         const [x, y] = pos(p, e);
-        if (cur.erase) { eraseAt(p, x, y); return; }
+        if (cur.text) return;
+        if (cur.erase) { eraseAt(p, x, y, e); return; }
         const pts = cur.s.p, lx = pts[pts.length - 2], ly = pts[pts.length - 1];
         if (Math.hypot(x - lx, (y - ly) * p.ratio) < 0.002) return;
         pts.push(+x.toFixed(4), +y.toFixed(4));
@@ -242,8 +351,13 @@
         if (cur.s.t === "hl") { redrawInk(p); drawStroke(ctx, cur.s, p.ink.width, p.ink.height); }
         else drawStroke(ctx, { ...cur.s, p: pts.slice(-4) }, p.ink.width, p.ink.height);
       });
-      const end = () => {
+      const end = (e) => {
         if (!cur || cur.p !== p) return;
+        if (cur.text) {
+          const c = cur; cur = null;
+          if (e && e.type === "pointerup") openEditor(p, { t: "text", c: st.color === COLORS[4] ? "#a16207" : st.color, f: TXT_F, x: +Math.min(0.9, c.x).toFixed(4), y: +Math.max(0, c.y - 0.008).toFixed(4), v: "" }, true);
+          return;
+        }
         if (cur.s) {
           (data.pages[p.n] = data.pages[p.n] || []).push(cur.s);
           history.push({ n: p.n, added: cur.s });
@@ -260,11 +374,12 @@
       const p = pages.find((x) => x.n === h.n);
       if (h.added) data.pages[h.n] = (data.pages[h.n] || []).filter((s) => s !== h.added);
       if (h.removed) data.pages[h.n] = (data.pages[h.n] || []).concat(h.removed);
-      if (p) redrawInk(p);
+      if (h.edited) Object.assign(h.edited, h.prev);
+      if (p) { redrawInk(p); renderTexts(p); }
       changed();
     }
 
-    return { flush: () => (saveTimer ? flush() : saving) };
+    return { flush: () => { if (editor) editor.commit(); return saveTimer ? flush() : saving; } };
   }
 
   window.Annot = { mount };
