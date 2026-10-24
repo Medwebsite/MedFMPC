@@ -5,7 +5,7 @@
    ===================================================================== */
 window.APP_CONFIG = {
   nomSite: "MedFMPC",
-  faculte: "Faculté de Médecine et de Pharmacie de Casablanca",
+  faculte: "Faculté de Médecine et de Pharmacie",
   slogan: "Cours, plannings et actualités — au même endroit.",
 
   // Si true, il faut un compte pour voir et utiliser le site (pas d'accès visiteur).
