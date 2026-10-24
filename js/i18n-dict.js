@@ -407,6 +407,8 @@
     ["Stylo", "قلم", "Pen"],
     ["Surligneur", "قلم تمييز", "Highlighter"],
     ["Gomme", "ممحاة", "Eraser"],
+    ["Zone de texte", "مربع نص", "Text box"],
+    ["Écris ici…", "اكتب هنا…", "Type here…"],
     ["Couleur", "اللون", "Colour"],
     ["Annuler le dernier trait", "تراجع عن آخر خط", "Undo last stroke"],
     ["Dézoomer", "تصغير", "Zoom out"],
