@@ -738,3 +738,13 @@ html[lang="ar"] h1, html[lang="ar"] h2, html[lang="ar"] h3 { letter-spacing: 0; 
 .chat-foot { display: flex; flex-wrap: wrap; gap: 0 4px; }
 .assistant-card { display: flex; flex-direction: column; padding: 16px; height: calc(100vh - 64px - 200px); min-height: 460px; }
 @media (max-width: 900px) { .assistant-card { height: 70vh; } }
+
+/* ---------- Plein écran du lecteur ---------- */
+.viewer.vfull { position: fixed; inset: 0; z-index: 60; height: 100vh; height: 100dvh; min-height: 0; padding: 10px 12px; background: var(--bg); }
+.viewer.vfull .viewer-title small { display: none; }
+:fullscreen .viewer, .viewer:fullscreen { background: var(--bg); }
+body.no-scroll { overflow: hidden; }
+@media (max-width: 900px) {
+  .viewer.vfull { overflow-y: auto; }
+  .viewer.vfull .viewer-doc { height: calc(100dvh - 70px); }
+}
