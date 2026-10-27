@@ -1011,7 +1011,7 @@
         onSave: (d) => Store.saveAnnot(id, d, { nom: info.name, contexte }),
         onError: (e) => toast(e.message, true),
         // si le fichier ne peut pas être affiché ici : message + téléchargement
-        onFail: (e) => { const msg = e && /limite|année|connecte/i.test(e.message || "") ? e.message : ""; if (msg) { const box = $(".viewer-doc", viewer); if (box) box.innerHTML = `<div class="vw-media"><div class="vw-msg">${I.file}<p>${esc(T(msg))}</p></div></div>`; } },
+        onFail: (e) => { if (isNative) return media(); const msg = e && /limite|année|connecte/i.test(e.message || "") ? e.message : ""; if (msg) { const box = $(".viewer-doc", viewer); if (box) box.innerHTML = `<div class="vw-media"><div class="vw-msg">${I.file}<p>${esc(T(msg))}</p></div></div>`; } },
       });
     }
     $("#vw-toggle").onclick = () => {
