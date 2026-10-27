@@ -737,7 +737,7 @@
     return `<li class="item" data-name="${esc(it.name)}">
       <a class="item-link" href="#/fichier/${esc(it.id)}" title="Ouvrir">
         <span class="fi ${cls}">${icon}</span><span class="nm"><b>${esc(it.name)}</b><small>${meta}</small></span></a>
-      <span class="acts">${isNative ? "" : `<a class="icon-btn" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger" aria-label="Télécharger ${esc(it.name)}">${I.dl}</a>`}</span></li>`;
+      <span class="acts"><button type="button" class="icon-btn" data-dl="${esc(it.id)}" data-nom="${esc(it.name)}" title="Télécharger" aria-label="Télécharger ${esc(it.name)}">${I.dl}</button></span></li>`;
   }
 
   function renderAdded(added, f, a, s) {
@@ -886,9 +886,9 @@
 
     if (tab === "drive" && isAdmin()) {
       box.innerHTML = `
-        <p class="small muted">Les semestres se relient dans <code>js/config.js</code> (champ <code>drive</code> de chaque semestre).</p>
+        <p class="small muted">Chaque semestre est relié automatiquement quand tu importes sa liste de cours. Les liens Google Drive ne sont jamais envoyés aux étudiants.</p>
         <div class="grid grid-2">${CFG.filieres.map((f) => `<div class="card card-pad"><h3>${esc(f.nom)}</h3><div class="status-list">
-          ${f.annees.flatMap((a) => a.semestres.map((x) => `<div><span>${esc(a.label)} · ${x.code}</span>${x.drive ? `<a class="ok" href="${Drive.folderUrl(x.drive)}" target="_blank" rel="noopener">lié ✓</a>` : `<span class="ko">non lié</span>`}</div>`)).join("")}
+          ${f.annees.flatMap((a) => a.semestres.map((x) => `<div><span>${esc(a.label)} · ${x.code}</span>${x.drive ? `<span class="ok">lié ✓</span>` : `<span class="ko">non lié</span>`}</div>`)).join("")}
         </div></div>`).join("")}</div>
         <div class="card card-pad" style="margin-top:16px">
           <h3>Mettre à jour la liste des cours</h3>
@@ -947,24 +947,25 @@
     const items = await Drive.list(info.parent);
     const it = items.find((x) => x.id === id) || { id, name: info.name, mimeType: "" };
     const isNative = (it.mimeType || "").startsWith("application/vnd.google-apps");
-    const kind = fileKind(it.mimeType, it.name)[0];
-    // Stylo / surligneur : PDF et images, si une clé Google « fichiers » est configurée
+    // Les Google Docs / Slides sont convertis en PDF par le serveur : on les lit comme des PDF
+    const kind = isNative ? "pdf" : fileKind(it.mimeType, it.name)[0];
+    // Stylo / surligneur : PDF et images (le fichier passe par le serveur, jamais par un lien Drive)
     const fkey = CFG.googleFichiersKey;
     const canAnnot = !!(window.Annot && (kind === "pdf" || kind === "img") && (Store.fetchFichier || fkey));
-    const iframeHtml = `<div class="spinner"></div><iframe src="${esc(Drive.previewUrl(id))}" title="Aperçu du document" allow="autoplay; fullscreen" referrerpolicy="no-referrer"></iframe>`;
+    const mediaHtml = `<div class="vw-media" id="vw-media"><div class="spinner"></div></div>`;
     document.title = `${info.name} — ${CFG.nomSite}`;
     main.innerHTML = `<div class="viewer" id="viewer">
       <div class="viewer-head">
         <a class="icon-btn" href="${back}" title="Retour au dossier" aria-label="Retour au dossier">${I.back}</a>
         <div class="viewer-title"><b data-i18n-skip>${esc(info.name)}</b><small class="muted" data-i18n-skip>${esc(contexte)}</small></div>
         <div class="viewer-acts">
-          ${isNative ? "" : `<a class="btn btn-sm btn-ghost" href="${esc(Drive.downloadUrl(it))}" target="_blank" rel="noopener" title="Télécharger">${I.dl}<span>Télécharger</span></a>`}
+          <button type="button" class="btn btn-sm btn-ghost" data-dl="${esc(id)}" data-nom="${esc(info.name)}" title="Télécharger">${I.dl}<span>Télécharger</span></button>
           <button class="btn btn-sm btn-ghost" id="vw-full" aria-pressed="false" title="Plein écran">${I.expand}<span>Plein écran</span></button>
           <button class="btn btn-sm btn-soft" id="vw-toggle" aria-expanded="true">${I.edit}<span>Notes & IA</span></button>
         </div>
       </div>
       <div class="viewer-body">
-        <div class="viewer-doc">${canAnnot ? `<div class="annot" id="annot"></div>` : iframeHtml}</div>
+        <div class="viewer-doc">${canAnnot ? `<div class="annot" id="annot"></div>` : mediaHtml}</div>
         <aside class="viewer-notes" id="vw-notes">
           <div class="vn-tabs" role="tablist">
             <button type="button" role="tab" data-vtab="notes" class="on" aria-selected="true">${I.edit}<span>Mes notes</span></button>
@@ -981,8 +982,23 @@
     </div>`;
 
     const viewer = $("#viewer"), ta = $("#vn-text"), status = $("#vn-status");
-    const wireFrame = () => { const fr = $(".viewer-doc iframe", viewer); if (fr) fr.addEventListener("load", () => { const sp = $(".viewer-doc .spinner", viewer); if (sp) sp.remove(); }); };
-    wireFrame();
+    // Vidéos, PowerPoint, Word… : lien temporaire créé par le serveur (l'adresse Drive reste cachée)
+    const media = async () => {
+      const box = $(".viewer-doc", viewer); if (!box) return;
+      if (!$("#vw-media", box)) box.innerHTML = mediaHtml;
+      const zone = $("#vw-media", box);
+      const indispo = (msg) => { zone.innerHTML = `<div class="vw-msg">${I.file}<p>${esc(T(msg))}</p><button type="button" class="btn btn-soft" data-dl="${esc(id)}" data-nom="${esc(info.name)}">${I.dl}<span>Télécharger</span></button></div>`; };
+      let lien = null;
+      try { lien = await Store.lienFichier(id, info.name); } catch (e) { return indispo(e.message); }
+      if (!lien) return indispo("L'aperçu de ce fichier est disponible sur le site en ligne.");
+      if (kind === "vid") {
+        zone.innerHTML = `<video controls playsinline preload="metadata" src="${esc(lien)}"></video>`;
+      } else if (kind === "ppt" || kind === "doc") {
+        zone.innerHTML = `<div class="spinner"></div><iframe src="https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(lien)}" title="${esc(T("Aperçu du document"))}" allow="fullscreen" referrerpolicy="no-referrer"></iframe>`;
+        const fr = $("iframe", zone); fr.addEventListener("load", () => { const sp = $(".spinner", zone); if (sp) sp.remove(); });
+      } else indispo("Pas d'aperçu pour ce type de fichier : télécharge-le pour l'ouvrir.");
+    };
+    if (!canAnnot) media();
     let annot = null;
     if (canAnnot) {
       let adata = null;
@@ -994,8 +1010,8 @@
         kind, data: adata, t: T,
         onSave: (d) => Store.saveAnnot(id, d, { nom: info.name, contexte }),
         onError: (e) => toast(e.message, true),
-        // si le fichier ne peut pas être chargé ici, on revient à l'aperçu Google
-        onFail: () => { const box = $(".viewer-doc", viewer); if (box) { box.innerHTML = iframeHtml; wireFrame(); } },
+        // si le fichier ne peut pas être affiché ici : message + téléchargement
+        onFail: (e) => { const msg = e && /limite|année|connecte/i.test(e.message || "") ? e.message : ""; if (msg) { const box = $(".viewer-doc", viewer); if (box) box.innerHTML = `<div class="vw-media"><div class="vw-msg">${I.file}<p>${esc(T(msg))}</p></div></div>`; } },
       });
     }
     $("#vw-toggle").onclick = () => {
@@ -1058,7 +1074,7 @@
       $$(".vn-pane", viewer).forEach((pn) => (pn.hidden = pn.dataset.pane !== b.dataset.vtab));
       if (b.dataset.vtab === "ia" && !chatMonte) {
         chatMonte = true;
-        const lisible = kind === "pdf" || kind === "img";
+        const lisible = kind === "pdf" || kind === "img"; // les Google Docs comptent comme PDF
         mountChat($(".vn-pane[data-pane=ia]", viewer), {
           cle: "fichier:" + id,
           fichier: lisible ? id : "",
@@ -1725,6 +1741,23 @@
     }
     if (route._last !== page) { window.scrollTo(0, 0); route._last = page; }
   }
+
+  /* ------------------------ téléchargement d'un cours ---------------- */
+  // Le serveur crée un lien temporaire : l'adresse Google Drive n'est jamais montrée
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-dl]");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    if (b.disabled) return;
+    b.disabled = true;
+    try {
+      const lien = Store.lienFichier ? await Store.lienFichier(b.dataset.dl, b.dataset.nom) : null;
+      if (!lien) { toast(T("Le téléchargement est disponible sur le site en ligne.")); return; }
+      const a = document.createElement("a"); a.href = lien + "?dl=1"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+      toast(T("Téléchargement lancé"));
+    } catch (err) { toast(err.message, true); }
+    finally { setTimeout(() => (b.disabled = false), 1500); }
+  }, true);
 
   /* ------------------------ actions (délégation) ---------------------- */
   document.addEventListener("click", async (e) => {
