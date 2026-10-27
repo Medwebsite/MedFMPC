@@ -43,22 +43,21 @@ window.APP_CONFIG = {
   // Une clé API Google la rendrait lisible par tout le monde.
   googleApiKey: "",
 
-  // Facultatif : le stylo sur les PDF passe par l'Edge Function « fichier »
-  // de Supabase. Cette clé Google ne sert que si tu veux t'en passer.
+  // Laisse vide : les cours passent par le serveur (Edge Function « fichier »).
   googleFichiersKey: "",
 
   // --- Filières, années & semestres --------------------------------
-  // Pour chaque semestre, colle l'ID du dossier Drive correspondant.
-  // L'ID est la partie après /folders/ dans le lien :
-  //   https://drive.google.com/drive/folders/1AbCdEfGh...  ->  "1AbCdEfGh..."
+  // drive: "lié" = ce semestre a des cours (liste importée dans Espace admin >
+  // Liaison Drive). Les liens Google Drive ne sont JAMAIS écrits ici ni envoyés
+  // aux navigateurs : le serveur les garde secrets.
   filieres: [
     {
       id: "medecine",
       nom: "Médecine",
       couleur: "#0f766e",
       annees: [
-        { annee: 1, label: "1ère année", semestres: [{ code: "S1", drive: "" }, { code: "S2", drive: "1LPGgwmpWjnTPD4VnP11qT0keVhhrDKSV" }] },
-        { annee: 2, label: "2ème année", semestres: [{ code: "S3", drive: "1BvZgD_dF4oIrIkeYpAh5lmmX6KXtezIp" }, { code: "S4", drive: "" }] },
+        { annee: 1, label: "1ère année", semestres: [{ code: "S1", drive: "" }, { code: "S2", drive: "lié" }] },
+        { annee: 2, label: "2ème année", semestres: [{ code: "S3", drive: "lié" }, { code: "S4", drive: "" }] },
         { annee: 3, label: "3ème année", semestres: [{ code: "S5", drive: "" }, { code: "S6", drive: "" }] },
         { annee: 4, label: "4ème année", semestres: [{ code: "S7", drive: "" }, { code: "S8", drive: "" }] },
         { annee: 5, label: "5ème année", semestres: [{ code: "S9", drive: "" }, { code: "S10", drive: "" }] },
