@@ -1,85 +1,73 @@
-# MedFMPC — site étudiant (FMP Casablanca)
+# MedFMPC
 
-Site statique (HTML/CSS/JS, aucune compilation) hébergé **gratuitement sur GitHub Pages**, avec **Supabase** (gratuit) pour les comptes, les actualités, les plannings et les fichiers.
+Plateforme de révision pour les étudiants de la **Faculté de Médecine et de Pharmacie** : cours rangés semestre par semestre, plannings, actualités de la promo, notes personnelles et assistant IA.
 
-| Qui | Peut faire |
+**Site :** https://medwebsite.github.io/MedFMPC/
+
+---
+
+## Fonctionnalités
+
+### Pour les étudiants
+- **Leçons** organisées comme le Drive : filière → année → semestre → module.
+- **Lecteur intégré** : les cours (PDF, images) s'ouvrent directement dans le site, sans passer par Google Drive.
+- **Annotations** sur les cours : stylo, surligneur, zones de texte, gomme, annuler, zoom. Tout est enregistré et privé.
+- **Mode plein écran** pour lire et annoter le cours.
+- **Mes notes** : un bloc-notes par fichier, enregistré automatiquement et regroupé dans la page « Mes notes ».
+- **Assistant IA** (Gemini) : questions de cours, résumés, QCM. Il peut lire le cours ouvert. 20 questions par jour.
+- **Plannings** et **actualités** publiés par l'équipe.
+- Interface en **français, arabe et anglais**, avec **mode clair / sombre**, sur ordinateur et téléphone.
+
+### Accès
+- **Inscription obligatoire.**
+- **Gratuit** avec un email `@etu.univh2c.ma` : accès à l'année choisie, modifiable à tout moment depuis « Mon année ».
+- **200 DH par année** pour les autres emails (paiement par carte, virement ou CashPlus). L'accès dure jusqu'au **30 septembre**.
+
+### Rôles
+| Rôle | Peut faire |
 |---|---|
-| **Visiteur** (sans compte) | Voir et télécharger les leçons, plannings et actualités |
-| **Éditeur** | Ajouter / supprimer leçons, plannings (PDF ou image) et actualités |
-| **Admin principal** (toi) | Tout ça + nommer ou retirer les éditeurs |
-
-Le Drive reste en **lecture seule** : le site affiche son contenu, personne ne peut le modifier depuis le site.
-
-```
-index.html          ← la page
-css/style.css       ← le design
-js/config.js        ← ⚙️ LE SEUL FICHIER À MODIFIER (clés + dossiers Drive)
-js/data.js          ← connexion Supabase / Google Drive
-js/app.js           ← les pages
-supabase/schema.sql ← à exécuter une fois dans Supabase
-```
-
-> Tant que `config.js` n'a pas de clés Supabase, le site tourne en **mode démo** (données d'exemple) : tu peux déjà tout tester en ouvrant `index.html`.
+| **Étudiant** | Consulter les cours de son année, annoter, prendre des notes, utiliser l'assistant |
+| **Éditeur** | + publier plannings et actualités |
+| **Admin** | + gérer les membres, les rôles, les accès payants et la liaison Drive |
 
 ---
 
-## Étape 1 — Créer la base Supabase (5 min)
+## Technique
 
-1. Va sur **supabase.com** → *Start your project* → connecte-toi avec GitHub.
-2. *New project* → nom `medfmpc`, choisis un mot de passe, région **Europe (Frankfurt / Paris)** → *Create*.
-3. Menu de gauche **SQL Editor** → *New query* → colle tout le contenu de `supabase/schema.sql` → **Run**.
-4. **Project Settings → API** : copie
-   - *Project URL* → dans `config.js`, champ `supabaseUrl`
-   - *anon public key* → champ `supabaseAnonKey`
-   (Cette clé est faite pour être publique : la sécurité est assurée par les règles du fichier SQL.)
+- **Front-end** : HTML / CSS / JavaScript sans compilation, hébergé sur **GitHub Pages**.
+- **Back-end** : **Supabase** (comptes, base de données avec règles de sécurité RLS, stockage, Edge Functions).
+- **Lecteur PDF** : PDF.js.
+- **IA** : API Gemini (offre gratuite de Google), appelée uniquement depuis le serveur.
 
-## Étape 2 — Lier le Drive
+```
+index.html                  page unique du site
+css/style.css               design (clair / sombre, mobile, arabe)
+js/config.js                réglages du site : nom, tarif, Supabase, dossiers Drive
+js/data.js                  accès aux données (Supabase)
+js/app.js                   pages et navigation
+js/annot.js                 lecteur PDF + stylo, surligneur, zones de texte
+js/i18n.js, i18n-dict.js    traduction FR / AR / EN
+supabase/*.sql              structure de la base et règles de sécurité
+supabase/functions/         Edge Functions (fichier, assistant, paiement)
+```
 
-Le site est organisé **filière → année → semestre (S1…S12) → modules**, exactement comme le Drive.
+### Edge Functions Supabase
+| Fonction | Rôle |
+|---|---|
+| `fichier` | Sert un cours du Drive au lecteur intégré, après vérification de l'accès de l'étudiant |
+| `assistant` | Interroge Gemini en respectant la limite de questions par jour |
+| `paiement-token` / `paiement-webhook` | Paiement par carte (YouCan Pay) |
 
-1. Dans Google Drive, clic droit sur le dossier du semestre → **Partager** → Accès général : **« Tous les utilisateurs disposant du lien » — Lecteur**.
-2. Copie l'ID dans l'URL : `https://drive.google.com/drive/folders/`**`1AbCdEf...`** → colle-le dans `config.js`, champ `drive` du bon semestre.
-   *(Déjà fait : Médecine 2ème année — S3.)*
-3. **Deux façons d'afficher le Drive :**
-   - **Sans clé (par défaut)** : le site utilise une copie de l'arborescence enregistrée dans `js/drive-data.js` (recherche dans tout le semestre, nombre de fichiers par module). Quand le Drive change beaucoup, demande à Claude de rafraîchir ce fichier.
-   - **Avec une clé API Google (recommandé à terme)** : le site lit le Drive **en direct**, plus besoin de rafraîchir.
-     1. **console.cloud.google.com** → crée un projet.
-     2. *APIs & Services → Library* → **Google Drive API** → *Enable*.
-     3. *Credentials → Create credentials → API key*.
-     4. *Edit API key* → **Websites** : `https://TONPSEUDO.github.io/*` ; **API restrictions** : Google Drive API → *Save*.
-     5. Colle la clé dans `config.js` → `googleApiKey`.
-
-## Étape 3 — Mettre en ligne sur GitHub Pages (gratuit)
-
-1. Sur **github.com** → *New repository* → nom `medfmpc` → **Public** → *Create*.
-2. *uploading an existing file* → glisse **tout le contenu** du dossier (index.html, css, js, supabase, .nojekyll, README.md) → *Commit changes*.
-3. **Settings → Pages** → *Source : Deploy from a branch* → Branch **main** / **(root)** → *Save*.
-4. Après 1–2 min ton site est en ligne : **`https://TONPSEUDO.github.io/medfmpc/`**
-5. Retourne dans Supabase → **Authentication → URL Configuration** → *Site URL* = cette adresse (pour que les emails de confirmation renvoient vers ton site).
-
-Pour modifier le site plus tard : sur GitHub, ouvre le fichier (ex. `js/config.js`) → icône ✏️ → *Commit*. Le site se met à jour en ~1 min.
-
-## Étape 4 — Devenir admin principal
-
-1. Sur ton site : **Connexion → Créer un compte** (confirme l'email reçu).
-2. Supabase → **SQL Editor** → exécute (avec ton email) :
-   ```sql
-   update public.profiles set role = 'admin' where email = 'ton.email@exemple.com';
-   ```
-3. Reconnecte-toi : le menu **Espace admin** apparaît.
-
-## Étape 5 — Ajouter des éditeurs
-
-1. La personne crée son compte sur le site (*Connexion → Créer un compte*).
-2. Toi : **Espace admin → Membres & rôles** → passe-la en **Éditeur**.
-3. Elle peut maintenant publier plannings, actualités et leçons. Tu peux lui retirer le rôle à tout moment.
+Les clés secrètes (Gemini, YouCan Pay…) sont uniquement dans **Supabase → Edge Functions → Secrets**, jamais dans ce dépôt.
 
 ---
 
-### Limites de l'offre gratuite Supabase
-- 1 Go de fichiers, 50 Mo max par fichier → largement suffisant pour des plannings et quelques ajouts (les gros cours restent sur le Drive).
-- Un projet **inactif pendant 7 jours** est mis en pause : il suffit de le relancer d'un clic dans le tableau de bord Supabase. Dès que des étudiants utilisent le site, ça n'arrive pas.
+## Administration
 
-### Personnaliser
-- Nom du site, faculté, couleurs, nombre d'années : tout est dans `js/config.js`.
-- Catégories d'actualités : constante `CATEGORIES` en haut de `js/app.js`.
+- **Ajouter un éditeur** : la personne crée son compte, puis **Espace admin → Membres & rôles → Éditeur**.
+- **Valider un paiement manuel** : **Espace admin → Membres & rôles → Activer**.
+- **Mettre à jour la liste des cours** : **Espace admin → Liaison Drive → Importer** le fichier d'import (ce fichier ne doit pas être mis sur GitHub).
+- **Modifier le site** : ouvrir le fichier sur GitHub → ✏️ → *Commit changes*. Le site se met à jour en environ une minute.
+
+### Installation sur un nouveau projet Supabase
+Dans **SQL Editor**, exécuter dans l'ordre : `schema.sql`, `maj-securite.sql`, `maj-acces-payant.sql`, `maj-notes.sql`, `maj-annotations.sql`, `maj-assistant.sql`. Puis déployer les Edge Functions et renseigner `supabaseUrl` et `supabaseAnonKey` dans `js/config.js`.
