@@ -58,6 +58,17 @@
   /*  Implémentation SUPABASE                                            */
   /* ------------------------------------------------------------------ */
   function supabaseStore() {
+    // Stockage privé : les fichiers (plannings, images) s'ouvrent avec des liens signés temporaires
+    async function signer(rows) {
+      const champs = [["fichier_path", "fichier_url"], ["image_path", "image_url"]];
+      const paths = [...new Set(rows.flatMap((r) => champs.map(([p]) => r[p]).filter(Boolean)))];
+      if (!paths.length) return;
+      try {
+        const { data } = await sb.storage.from(BUCKET).createSignedUrls(paths, 6 * 3600);
+        const m = new Map((data || []).filter((x) => x.signedUrl).map((x) => [x.path, x.signedUrl]));
+        rows.forEach((r) => champs.forEach(([p, u]) => { if (r[p] && m.has(r[p])) r[u] = m.get(r[p]); }));
+      } catch (e) { /* on garde les adresses enregistrées */ }
+    }
     let sb = null;
     let listeners = [];
     let currentUser = null;
@@ -144,10 +155,17 @@
       },
       // --- Cours (copie du Drive protégée) ---
       async loadSnapshot() {
-        const { data, error } = await sb.from("drive_snapshot").select("cle,data,updated_at");
+        const { data, error } = await sb.from("drive_snapshot").select("cle,filiere,annee,semestre,data,updated_at");
         if (error || !data) return;
         const folders = {}; let upd = "";
-        data.filter((r) => r.cle !== "stats").forEach((r) => { Object.assign(folders, r.data); if (r.updated_at > upd) upd = r.updated_at; });
+        data.filter((r) => r.cle !== "stats").forEach((r) => {
+          Object.assign(folders, r.data); if (r.updated_at > upd) upd = r.updated_at;
+          // Relie le semestre à sa liste de cours (le site ne connaît que des jetons, jamais les liens Drive)
+          const f = CFG.filieres.find((x) => x.id === r.filiere);
+          const a = f && f.annees.find((x) => Number(x.annee) === Number(r.annee));
+          const sem = a && a.semestres.find((x) => x.code === r.semestre);
+          if (sem) sem.drive = r.cle;
+        });
         window.Drive.setSnapshot(folders, upd ? upd.slice(0, 10) : "");
       },
       async publicStats() {
@@ -155,7 +173,7 @@
         return data ? data.data : null;
       },
       async importSnapshot(json) {
-        const rows = json.semestres.map((x) => ({ cle: x.racine, filiere: x.filiere, annee: x.annee, data: x.dossiers, updated_at: new Date().toISOString() }));
+        const rows = json.semestres.map((x) => ({ cle: x.racine, filiere: x.filiere, annee: x.annee, semestre: x.code, data: x.dossiers, updated_at: new Date().toISOString() }));
         rows.push({ cle: "stats", data: json.stats, updated_at: new Date().toISOString() });
         const { error } = await sb.from("drive_snapshot").upsert(rows);
         if (error) throw new Error(traduire(error.message));
@@ -262,6 +280,17 @@
         if (cache) { try { const size = Number(r.headers.get("content-length") || 0); if (!size || size < 80e6) await cache.put(cacheKey, r.clone()); } catch (e) {} }
         return r;
       },
+      // --- Lien temporaire (3 h) : vidéos, PowerPoint / Word, téléchargements ---
+      async lienFichier(id, nom) {
+        const { data, error } = await sb.rpc("fichier_lien", { t: id, nom });
+        if (error) {
+          const m = error.message || "";
+          if (m.includes("LIMITE")) throw new Error("Tu as ouvert beaucoup de fichiers aujourd'hui. Reviens demain pour en ouvrir d'autres.");
+          if (m.includes("INTERDIT")) throw new Error("Ce fichier ne fait pas partie de ton année.");
+          throw new Error(traduire(m));
+        }
+        return `${CFG.supabaseUrl}/functions/v1/apercu/${data}/${encodeURIComponent(String(nom || "fichier").replace(/[\\/]/g, "-"))}`;
+      },
       // --- Annotations au stylo (privées) ---
       async getAnnot(fichier) {
         const { data, error } = await sb.from("annotations").select("data,updated_at").eq("user_id", currentUser.id).eq("fichier", fichier).maybeSingle();
@@ -291,6 +320,7 @@
         });
         const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
         if (error) throw error;
+        await signer(data || []);
         return data || [];
       },
       async insert(table, row) {
@@ -314,8 +344,8 @@
         const path = `${dossier}/${Date.now()}-${slugFile(file.name)}`;
         const { error } = await sb.storage.from(BUCKET).upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type || undefined });
         if (error) throw new Error(traduire(error.message));
-        const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
-        return { url: data.publicUrl, path };
+        const { data } = await sb.storage.from(BUCKET).createSignedUrl(path, 6 * 3600);
+        return { url: data ? data.signedUrl : "", path };
       },
       async removeFile(path) { if (path) await sb.storage.from(BUCKET).remove([path]); },
       async members() {
@@ -550,6 +580,7 @@
         return { texte: `**Aperçu** — sur le vrai site, Gemini répond ici${fichier ? " en lisant le document ouvert" : ""}.\n\nTa question : *${q}*\n\n- Exemple de liste\n- **Mot clé** important`, restant: 19 };
       },
       async iaRestant() { return 20; },
+      async lienFichier() { return null; }, // aperçu : liens temporaires seulement sur le vrai site
       async getAnnot(fichier) { return (db.annots || []).find((n) => n.user_id === currentUser.id && n.fichier === fichier) || null; },
       async saveAnnot(fichier, data, { nom, contexte }) {
         db.annots = (db.annots || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier));
@@ -674,12 +705,6 @@
       walk(rootId, []);
       return out.slice(0, 200);
     },
-    viewUrl: (it) => it.webViewLink || (it.mimeType === FOLDER ? `https://drive.google.com/drive/folders/${it.id}` : `https://drive.google.com/file/d/${it.id}/view`),
-    downloadUrl: (it) => (it.mimeType || "").startsWith("application/vnd.google-apps")
-      ? Drive.viewUrl(it)
-      : `https://drive.google.com/uc?export=download&id=${it.id}`,
-    // Aperçu d'un fichier, affiché DANS le site
-    previewUrl: (id) => `https://drive.google.com/file/d/${id}/preview`,
     info: (id) => snapIndex.get(id) || null,
     // Dossiers parents d'un fichier : { root: dossier du semestre, folders: [ids du haut vers le bas] }
     trail(id) {
@@ -688,8 +713,6 @@
       while (pid && snapIndex.has(pid)) { chain.unshift(pid); pid = snapIndex.get(pid).parent; }
       return { root: pid, folders: chain };
     },
-    embedFolderUrl: (id) => `https://drive.google.com/embeddedfolderview?id=${id}#list`,
-    folderUrl: (id) => `https://drive.google.com/drive/folders/${id}`,
   };
 
   const configured = !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
