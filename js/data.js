@@ -57,6 +57,27 @@
   /* ------------------------------------------------------------------ */
   /*  Implémentation SUPABASE                                            */
   /* ------------------------------------------------------------------ */
+  const EXEMPLES_REVISION = {
+    flashcards: { titre: "Physiologie cardiaque (exemple)", cartes: [
+      { recto: "Quelle est la durée normale d'un cycle cardiaque à 75 bpm ?", verso: "Environ 0,8 s : systole ≈ 0,3 s, diastole ≈ 0,5 s." },
+      { recto: "Quel est le pacemaker physiologique du cœur ?", verso: "Le nœud sinusal (de Keith et Flack), dans l'oreillette droite." },
+      { recto: "Définir le débit cardiaque.", verso: "Volume de sang éjecté par minute : Qc = VES × FC (≈ 5 L/min au repos)." },
+      { recto: "Que traduit l'onde P de l'ECG ?", verso: "La dépolarisation des oreillettes." },
+      { recto: "Loi de Frank-Starling ?", verso: "Plus le remplissage (précharge) augmente, plus la force de contraction et le VES augmentent." },
+    ] },
+    qcm: { titre: "Physiologie cardiaque (exemple)", questions: [
+      { question: "Concernant le nœud sinusal :", propositions: ["Il est situé dans l'oreillette droite", "Il impose le rythme cardiaque normal", "Il est situé dans le septum interventriculaire", "Sa fréquence propre est d'environ 70/min", "Il n'est pas innervé"], bonnes: [0, 1, 3], explication: "Le nœud sinusal, dans l'oreillette droite, est le pacemaker (≈ 70/min) ; il est innervé par le système nerveux autonome." },
+      { question: "Le débit cardiaque :", propositions: ["Est égal à VES × FC", "Vaut environ 5 L/min au repos", "Diminue à l'effort", "Ne dépend pas de la précharge", "S'exprime en mmHg"], bonnes: [0, 1], explication: "Qc = VES × FC ≈ 5 L/min au repos ; il augmente à l'effort et dépend de la précharge (Frank-Starling)." },
+      { question: "L'onde P de l'ECG correspond à :", propositions: ["La dépolarisation auriculaire", "La repolarisation ventriculaire", "La dépolarisation ventriculaire", "La conduction dans le faisceau de His", "La repolarisation auriculaire"], bonnes: [0], explication: "P = dépolarisation des oreillettes ; QRS = ventricules ; T = repolarisation ventriculaire." },
+    ] },
+    carte: { titre: "Physiologie cardiaque (exemple)", branches: [
+      { titre: "Activité électrique", enfants: [{ titre: "Nœud sinusal", enfants: [{ titre: "Pacemaker ≈ 70/min" }] }, { titre: "Nœud AV" }, { titre: "Faisceau de His" }, { titre: "ECG", enfants: [{ titre: "P : oreillettes" }, { titre: "QRS : ventricules" }, { titre: "T : repolarisation" }] }] },
+      { titre: "Cycle cardiaque", enfants: [{ titre: "Systole ≈ 0,3 s" }, { titre: "Diastole ≈ 0,5 s" }] },
+      { titre: "Débit cardiaque", enfants: [{ titre: "Qc = VES × FC" }, { titre: "≈ 5 L/min au repos" }, { titre: "Frank-Starling" }] },
+      { titre: "Régulation", enfants: [{ titre: "Sympathique : ↑ FC" }, { titre: "Parasympathique : ↓ FC" }] },
+    ] },
+  };
+
   function supabaseStore() {
     // Stockage privé : les fichiers (plannings, images) s'ouvrent avec des liens signés temporaires
     async function signer(rows) {
@@ -290,6 +311,41 @@
           throw new Error(traduire(m));
         }
         return `${CFG.supabaseUrl}/functions/v1/apercu/${data}/${encodeURIComponent(String(nom || "fichier").replace(/[\\/]/g, "-"))}`;
+      },
+      // --- Réviser : flashcards, QCM, cartes mentales (Edge Function « revision ») ---
+      async genererRevision(opts) {
+        const { data, error } = await sb.functions.invoke("revision", { body: opts });
+        if (error) {
+          let msg = error.message, restant;
+          try { const c = await error.context.json(); msg = c.error || msg; restant = c.restant; } catch (e) {}
+          const err = new Error(msg); err.restant = restant; throw err;
+        }
+        return data;
+      },
+      async saveRevision({ type, fichier, nom, contexte, data }) {
+        const { data: row, error } = await sb.from("revisions").insert({ type, fichier: fichier || null, nom, contexte, data }).select("id").single();
+        if (error) throw new Error(traduire(error.message));
+        return row.id;
+      },
+      async listRevisions(fichier) {
+        let q = sb.from("revisions").select("id,type,fichier,nom,contexte,suivi,created_at").eq("user_id", currentUser.id);
+        if (fichier) q = q.eq("fichier", fichier);
+        const { data, error } = await q.order("created_at", { ascending: false }).limit(300);
+        if (error) throw new Error(traduire(error.message));
+        return data || [];
+      },
+      async getRevision(id) {
+        const { data, error } = await sb.from("revisions").select("*").eq("id", id).maybeSingle();
+        if (error) throw new Error(traduire(error.message));
+        return data;
+      },
+      async saveSuivi(id, suivi) {
+        const { error } = await sb.from("revisions").update({ suivi, updated_at: new Date().toISOString() }).eq("id", id);
+        if (error) throw new Error(traduire(error.message));
+      },
+      async deleteRevision(id) {
+        const { error } = await sb.from("revisions").delete().eq("id", id);
+        if (error) throw new Error(traduire(error.message));
       },
       // --- Annotations au stylo (privées) ---
       async getAnnot(fichier) {
@@ -581,6 +637,21 @@
       },
       async iaRestant() { return 20; },
       async lienFichier() { return null; }, // aperçu : liens temporaires seulement sur le vrai site
+      // Réviser (aperçu : exemples fixes, sans Gemini)
+      async genererRevision({ type }) {
+        await new Promise((r) => setTimeout(r, 700));
+        return { data: JSON.parse(JSON.stringify(EXEMPLES_REVISION[type])), restant: 19 };
+      },
+      async saveRevision({ type, fichier, nom, contexte, data }) {
+        db.revisions = db.revisions || [];
+        const id = (db.revisions.reduce((m, r) => Math.max(m, r.id), 0) || 0) + 1;
+        db.revisions.unshift({ id, user_id: currentUser.id, type, fichier: fichier || null, nom, contexte, data, suivi: {}, created_at: new Date().toISOString() });
+        save(); return id;
+      },
+      async listRevisions(fichier) { return (db.revisions || []).filter((r) => r.user_id === currentUser.id && (!fichier || r.fichier === fichier)); },
+      async getRevision(id) { return (db.revisions || []).find((r) => r.user_id === currentUser.id && String(r.id) === String(id)) || null; },
+      async saveSuivi(id, suivi) { const r = (db.revisions || []).find((x) => String(x.id) === String(id)); if (r) { r.suivi = suivi; save(); } },
+      async deleteRevision(id) { db.revisions = (db.revisions || []).filter((r) => String(r.id) !== String(id)); save(); },
       async getAnnot(fichier) { return (db.annots || []).find((n) => n.user_id === currentUser.id && n.fichier === fichier) || null; },
       async saveAnnot(fichier, data, { nom, contexte }) {
         db.annots = (db.annots || []).filter((n) => !(n.user_id === currentUser.id && n.fichier === fichier));
