@@ -57,6 +57,9 @@
 
   /* ------------------------------ icônes ------------------------------ */
   const I = {
+    cards: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="13" height="16" rx="2"/><path d="M4 7v12a2 2 0 0 0 2 2h9"/><path d="M11 9h5M11 13h3"/></svg>',
+    qcm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="5" rx="1"/><path d="M4.5 6.5l1 1 1.8-2"/><rect x="3" y="14" width="5" height="5" rx="1"/><path d="M11 6.5h10M11 16.5h10"/></svg>',
+    mindmap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.6"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="M5.6 6.4l4.4 3.8M18.4 6.4 14 10.2M5.6 17.6l4.4-3.8M18.4 17.6 14 13.8"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
     shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>',
     spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>',
@@ -970,6 +973,7 @@
           <div class="vn-tabs" role="tablist">
             <button type="button" role="tab" data-vtab="notes" class="on" aria-selected="true">${I.edit}<span>Mes notes</span></button>
             <button type="button" role="tab" data-vtab="ia" aria-selected="false">${I.spark}<span>Assistant IA</span></button>
+            <button type="button" role="tab" data-vtab="rev" aria-selected="false">${I.cards}<span>Réviser</span></button>
           </div>
           <div class="vn-pane" data-pane="notes">
             <div class="vn-head"><span class="small muted" id="vn-status"></span></div>
@@ -977,6 +981,7 @@
             <div class="vn-foot small muted">${I.lock}<span>Privées : toi seul peux les voir.</span></div>
           </div>
           <div class="vn-pane" data-pane="ia" hidden></div>
+          <div class="vn-pane" data-pane="rev" hidden></div>
         </aside>
       </div>
     </div>`;
@@ -1068,10 +1073,14 @@
     route.flush = () => Promise.all([save(), annot ? annot.flush() : null, quitterFull()]);
 
     // Onglets du panneau + assistant IA (lit le PDF / l'image ouverts)
-    let chatMonte = false;
+    let chatMonte = false, revMonte = false;
     $$("[data-vtab]", viewer).forEach((b) => (b.onclick = () => {
       $$("[data-vtab]", viewer).forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-selected", String(x === b)); });
       $$(".vn-pane", viewer).forEach((pn) => (pn.hidden = pn.dataset.pane !== b.dataset.vtab));
+      if (b.dataset.vtab === "rev" && !revMonte) {
+        revMonte = true;
+        mountRevisionPanel($(".vn-pane[data-pane=rev]", viewer), { fichier: id, nom: info.name, contexte, lisible: kind === "pdf" || kind === "img" });
+      }
       if (b.dataset.vtab === "ia" && !chatMonte) {
         chatMonte = true;
         const lisible = kind === "pdf" || kind === "img"; // les Google Docs comptent comme PDF
@@ -1219,6 +1228,303 @@
       if (!(await confirmBox("Supprimer cette note et les annotations au stylo de ce fichier ? Cette action est définitive."))) return;
       try { await Promise.all([Store.deleteNote(b.dataset.delNote), Store.deleteAnnot(b.dataset.delNote)]); toast("Note supprimée"); route(); } catch (e) { toast(e.message, true); }
     }));
+  }
+
+  /* ---------------- Réviser : flashcards, QCM, cartes mentales ---------------- */
+  const REV_TYPES = {
+    flashcards: { nom: "Flashcards", icon: () => I.cards, desc: "Recto / verso pour mémoriser" },
+    qcm: { nom: "QCM", icon: () => I.qcm, desc: "Questions type examen, corrigées" },
+    carte: { nom: "Carte mentale", icon: () => I.mindmap, desc: "Tout le cours en un schéma" },
+  };
+  const revTaille = (r) => {
+    const d = r.data || {};
+    if (r.type === "flashcards") return `${(d.cartes || []).length} ${T("cartes")}`;
+    if (r.type === "qcm") return `${(d.questions || []).length} ${T("questions")}`;
+    return "";
+  };
+  const revProgres = (r) => {
+    const s = r.suivi || {};
+    if (r.type === "qcm" && s.meilleur != null) return `${T("Meilleur score")} : ${s.meilleur}/${s.total}`;
+    if (r.type === "flashcards" && s.cartes) { const n = Object.values(s.cartes).filter((x) => x === "ok").length; return `${n} ${T(n > 1 ? "cartes maîtrisées" : "carte maîtrisée")}`; }
+    return "";
+  };
+
+  // Crée une révision (Gemini) puis l'ouvre
+  async function genererRevision(opts, { nom, contexte } = {}) {
+    if (!Store.genererRevision) { toast(T("La révision n'est pas disponible ici."), true); return; }
+    const t = REV_TYPES[opts.type];
+    openModal(T(t.nom), `<div class="rev-wait"><div class="spinner"></div><p><b>${esc(T("L'assistant prépare ta révision…"))}</b></p><p class="small muted">${esc(T("Cela prend en général 10 à 40 secondes. Reste sur cette page."))}</p></div>`);
+    try {
+      const r = await Store.genererRevision(opts);
+      const id = await Store.saveRevision({ type: opts.type, fichier: opts.fichier || null, nom: nom || r.data.titre, contexte: contexte || "", data: r.data });
+      closeModal();
+      if (r.cache) toast(T("Prêt ! (déjà préparé pour ce cours : ne compte pas dans tes questions)"));
+      else if (typeof r.restant === "number") toast(`${T("Prêt !")} ${r.restant} ${T(r.restant > 1 ? "questions restantes aujourd'hui" : "question restante aujourd'hui")}`);
+      location.hash = `#/reviser/${id}`;
+    } catch (e) {
+      closeModal();
+      toast(e.message || T("L'assistant n'a pas pu préparer ta révision. Réessaie."), true);
+    }
+  }
+
+  // Panneau « Réviser » dans le lecteur de cours
+  async function mountRevisionPanel(box, { fichier, nom, contexte, lisible }) {
+    if (!lisible) {
+      box.innerHTML = `<div class="rev-panel"><p class="small muted">${esc(T("L'assistant ne peut pas lire ce format (PowerPoint, Word, vidéo). Ouvre la version PDF du cours si elle existe, ou importe-la dans la page Réviser."))}</p><a class="btn btn-soft" href="#/reviser">${I.cards}<span>${esc(T("Aller à Réviser"))}</span></a></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="rev-panel">
+      <p class="small muted">${esc(T("Crée à partir de ce cours :"))}</p>
+      <div class="rev-choix">${Object.entries(REV_TYPES).map(([k, t]) => `
+        <button type="button" class="rev-btn" data-gen="${k}">${t.icon()}<span><b>${esc(T(t.nom))}</b><small>${esc(T(t.desc))}</small></span></button>`).join("")}</div>
+      <p class="small muted rev-note">${esc(T("Compte comme 1 question de l'assistant (gratuit si le cours a déjà été préparé)."))}</p>
+      <div class="rev-mes"></div>
+    </div>`;
+    $$("[data-gen]", box).forEach((b) => (b.onclick = () => genererRevision({ type: b.dataset.gen, fichier }, { nom, contexte })));
+    try {
+      const liste = await Store.listRevisions(fichier);
+      if (liste.length) $(".rev-mes", box).innerHTML = `<p class="small"><b>${esc(T("Tes révisions de ce cours"))}</b></p>` + liste.map((r) => `
+        <a class="rev-mini" href="#/reviser/${r.id}">${REV_TYPES[r.type].icon()}<span>${esc(T(REV_TYPES[r.type].nom))}</span><small class="muted">${timeAgo(r.created_at)}</small></a>`).join("");
+    } catch (e) { /* liste facultative */ }
+  }
+
+  async function pageReviser(id) {
+    if (id) return pageRevision(id);
+    const liste = await Store.listRevisions().catch((e) => { toast(e.message, true); return []; });
+    main.innerHTML = `
+      <div class="page-head"><div><h1>Réviser</h1><p>Donne un cours à l'assistant : il te prépare des flashcards, des QCM corrigés ou une carte mentale.</p></div></div>
+      <div class="grid grid-2 rev-start">
+        <section class="card card-pad">
+          <h3>${I.book} ${esc(T("Un cours du site"))}</h3>
+          <p class="small muted">${esc(T("Ouvre un cours dans Leçons, puis l'onglet « Réviser » à côté du document."))}</p>
+          <a class="btn btn-soft" href="#/lecons">${esc(T("Choisir un cours"))}</a>
+        </section>
+        <section class="card card-pad">
+          <h3>${I.dl.replace("M12 4v11M7 10l5 5 5-5", "M12 20V9M7 14l5-5 5 5")} ${esc(T("Ton propre cours"))}</h3>
+          <form id="rev-form" class="rev-form">
+            <div class="rev-seg" role="radiogroup">${Object.entries(REV_TYPES).map(([k, t], i) => `<label><input type="radio" name="type" value="${k}" ${i === 0 ? "checked" : ""}><span>${esc(T(t.nom))}</span></label>`).join("")}</div>
+            <label class="rev-file"><input type="file" name="doc" accept="application/pdf,image/png,image/jpeg,image/webp"><span>${I.pdf}<b>${esc(T("Choisir un PDF ou une photo"))}</b><small class="muted">${esc(T("10 Mo maximum"))}</small></span></label>
+            <textarea class="input" name="texte" rows="4" dir="auto" maxlength="60000" placeholder="${esc(T("… ou colle le texte du cours ici"))}"></textarea>
+            <button class="btn" type="submit">${I.spark}<span>${esc(T("Générer"))}</span></button>
+            <p class="small muted">${esc(T("Compte comme 1 question de l'assistant."))}</p>
+          </form>
+        </section>
+      </div>
+      <h2 class="rev-h2">${esc(T("Mes révisions"))}</h2>
+      ${liste.length ? `<div class="rev-list">${liste.map((r) => `
+        <article class="card rev-item">
+          <a class="rev-item-main" href="#/reviser/${r.id}">
+            <span class="fi rev-ic rev-ic-${r.type}">${REV_TYPES[r.type].icon()}</span>
+            <span class="rev-item-txt"><b data-i18n-skip>${esc(r.nom || "Révision")}</b>
+              <small class="muted">${esc(T(REV_TYPES[r.type].nom))}${r.contexte ? ` · <span data-i18n-skip>${esc(r.contexte === "Cours importé" ? T(r.contexte) : r.contexte)}</span>` : ""}</small>
+              <small class="muted">${[revProgres(r), timeAgo(r.created_at)].filter(Boolean).map(esc).join(" · ")}</small></span>
+          </a>
+          <button class="icon-btn" data-del-rev="${r.id}" title="${esc(T("Supprimer"))}" aria-label="${esc(T("Supprimer"))}" style="color:var(--danger)">${I.trash}</button>
+        </article>`).join("")}</div>`
+        : emptyState("Aucune révision pour l'instant", "Choisis un cours ou importe le tien : tes flashcards, QCM et cartes mentales seront gardés ici.", I.cards)}`;
+    const form = $("#rev-form"), fileIn = $("input[type=file]", form), fileLbl = $(".rev-file b", form);
+    fileIn.onchange = () => { const f = fileIn.files[0]; fileLbl.textContent = f ? f.name : T("Choisir un PDF ou une photo"); };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form), type = fd.get("type"), f = fileIn.files[0], texte = String(fd.get("texte") || "").trim();
+      const opts = { type };
+      let nom = "";
+      if (f) {
+        if (f.size > 10 * 1024 * 1024) return toast(T("Fichier trop lourd (10 Mo maximum)."), true);
+        const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
+        opts.doc = { mime: f.type || "application/pdf", b64 }; nom = f.name.replace(/\.[a-z0-9]+$/i, "");
+      }
+      if (texte) opts.texte = texte;
+      if (!f && texte.length < 200) return toast(T("Choisis un fichier ou colle au moins quelques lignes de cours."), true);
+      await genererRevision(opts, { nom, contexte: "Cours importé" });
+    };
+    $$("[data-del-rev]").forEach((b) => (b.onclick = async () => {
+      if (!(await confirmBox(T("Supprimer cette révision ?")))) return;
+      try { await Store.deleteRevision(b.dataset.delRev); toast(T("Révision supprimée")); route(); } catch (e) { toast(e.message, true); }
+    }));
+  }
+
+  async function pageRevision(id) {
+    const r = await Store.getRevision(id);
+    if (!r) { main.innerHTML = emptyState("Révision introuvable", `<a class="btn btn-soft" href="#/reviser">${esc(T("Mes révisions"))}</a>`, I.cards); return; }
+    const t = REV_TYPES[r.type];
+    document.title = `${r.nom || T(t.nom)} — ${CFG.nomSite}`;
+    main.innerHTML = `
+      <div class="rev-head">
+        <a class="icon-btn" href="#/reviser" title="${esc(T("Mes révisions"))}" aria-label="${esc(T("Mes révisions"))}">${I.back}</a>
+        <div class="rev-head-t"><small class="muted">${t.icon()} ${esc(T(t.nom))}${revTaille(r) ? " · " + esc(revTaille(r)) : ""}</small><h1 data-i18n-skip dir="auto">${esc(r.nom || r.data.titre || "")}</h1>${r.contexte ? `<small class="muted" data-i18n-skip>${esc(r.contexte === "Cours importé" ? T(r.contexte) : r.contexte)}</small>` : ""}</div>
+        <div class="rev-head-acts">
+          ${r.fichier ? `<a class="btn btn-sm btn-ghost" href="#/fichier/${esc(r.fichier)}">${I.book}<span>${esc(T("Voir le cours"))}</span></a>` : ""}
+          ${r.fichier ? `<button class="btn btn-sm btn-ghost" id="rev-new" title="${esc(T("Nouvelle version (1 question IA)"))}">${I.spark}<span>${esc(T("Nouvelle version"))}</span></button>` : ""}
+          <button class="icon-btn" id="rev-del" title="${esc(T("Supprimer"))}" aria-label="${esc(T("Supprimer"))}" style="color:var(--danger)">${I.trash}</button>
+        </div>
+      </div>
+      <section class="rev-zone" id="rev-zone"></section>`;
+    $("#rev-del").onclick = async () => {
+      if (!(await confirmBox(T("Supprimer cette révision ?")))) return;
+      try { await Store.deleteRevision(r.id); toast(T("Révision supprimée")); location.hash = "#/reviser"; } catch (e) { toast(e.message, true); }
+    };
+    const nv = $("#rev-new");
+    if (nv) nv.onclick = () => genererRevision({ type: r.type, fichier: r.fichier, nouveau: true }, { nom: r.nom, contexte: r.contexte });
+    let tSuivi = null;
+    const sauver = () => { clearTimeout(tSuivi); tSuivi = setTimeout(() => Store.saveSuivi(r.id, r.suivi).catch(() => {}), 800); };
+    route.flush = () => { if (tSuivi) { clearTimeout(tSuivi); return Store.saveSuivi(r.id, r.suivi).catch(() => {}); } };
+    r.suivi = r.suivi || {};
+    const zone = $("#rev-zone");
+    if (r.type === "flashcards") vueFlashcards(zone, r, sauver);
+    else if (r.type === "qcm") vueQcm(zone, r, sauver);
+    else vueCarte(zone, r);
+  }
+
+  function vueFlashcards(zone, r, sauver) {
+    const cartes = r.data.cartes || [];
+    const etat = (r.suivi.cartes = r.suivi.cartes || {});
+    let ordre = cartes.map((_, i) => i), pos = 0, retournee = false, seulementKo = false;
+    zone.innerHTML = `<div class="fc">
+      <div class="fc-bar">
+        <span class="fc-pos small"></span>
+        <span class="fc-stats small"></span>
+        <span class="fc-tools">
+          <button type="button" class="chip" data-a="melanger">${esc(T("Mélanger"))}</button>
+          <button type="button" class="chip" data-a="ko">${esc(T("Revoir les cartes ✗"))}</button>
+          <button type="button" class="chip" data-a="raz">${esc(T("Recommencer"))}</button>
+        </span>
+      </div>
+      <button type="button" class="fc-card" aria-live="polite"><span class="fc-inner"><span class="fc-face fc-front" dir="auto" data-i18n-skip></span><span class="fc-face fc-back" dir="auto" data-i18n-skip></span></span></button>
+      <p class="fc-hint small muted">${esc(T("Clique sur la carte (ou Espace) pour voir la réponse."))}</p>
+      <div class="fc-acts">
+        <button type="button" class="icon-btn" data-a="prec" aria-label="${esc(T("Précédente"))}">${I.back}</button>
+        <button type="button" class="btn btn-ko" data-a="nok">✗ <span>${esc(T("À revoir"))}</span></button>
+        <button type="button" class="btn btn-ok" data-a="ok">✓ <span>${esc(T("Je savais"))}</span></button>
+        <button type="button" class="icon-btn fc-next" data-a="suiv" aria-label="${esc(T("Suivante"))}">${I.back}</button>
+      </div>
+    </div>`;
+    const card = $(".fc-card", zone), front = $(".fc-front", zone), back = $(".fc-back", zone);
+    const afficher = () => {
+      if (!ordre.length) { ordre = cartes.map((_, i) => i); seulementKo = false; toast(T("Aucune carte à revoir : bravo !")); }
+      pos = Math.max(0, Math.min(pos, ordre.length - 1));
+      const i = ordre[pos], c = cartes[i];
+      retournee = false; card.classList.remove("flip");
+      front.innerHTML = md(c.recto); back.innerHTML = md(c.verso);
+      card.classList.toggle("is-ok", etat[i] === "ok"); card.classList.toggle("is-ko", etat[i] === "ko");
+      $(".fc-pos", zone).textContent = `${T("Carte")} ${pos + 1} / ${ordre.length}${seulementKo ? " · " + T("à revoir") : ""}`;
+      const ok = Object.values(etat).filter((x) => x === "ok").length, ko = Object.values(etat).filter((x) => x === "ko").length;
+      $(".fc-stats", zone).textContent = `✓ ${ok} · ✗ ${ko} · ${cartes.length - ok - ko} ${T("non vues")}`;
+    };
+    const retourner = () => { retournee = !retournee; card.classList.toggle("flip", retournee); };
+    const marquer = (v) => { etat[ordre[pos]] = v; sauver(); if (pos < ordre.length - 1) { pos++; afficher(); } else { afficher(); toast(T("Fin du paquet !")); } };
+    card.onclick = retourner;
+    zone.onclick = (e) => {
+      const b = e.target.closest("[data-a]"); if (!b) return;
+      const a = b.dataset.a;
+      if (a === "prec") { pos = (pos - 1 + ordre.length) % ordre.length; afficher(); }
+      if (a === "suiv") { pos = (pos + 1) % ordre.length; afficher(); }
+      if (a === "ok") marquer("ok");
+      if (a === "nok") marquer("ko");
+      if (a === "melanger") { for (let k = ordre.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [ordre[k], ordre[j]] = [ordre[j], ordre[k]]; } pos = 0; afficher(); }
+      if (a === "ko") { seulementKo = true; ordre = cartes.map((_, i) => i).filter((i) => etat[i] === "ko"); pos = 0; afficher(); }
+      if (a === "raz") { Object.keys(etat).forEach((k) => delete etat[k]); sauver(); seulementKo = false; ordre = cartes.map((_, i) => i); pos = 0; afficher(); }
+    };
+    const clavier = (e) => {
+      if (!document.body.contains(zone)) return document.removeEventListener("keydown", clavier);
+      if (e.target.closest("input, textarea") || !modal.hidden) return;
+      if (e.key === " ") { e.preventDefault(); retourner(); }
+      else if (e.key === "ArrowRight") { pos = (pos + 1) % ordre.length; afficher(); }
+      else if (e.key === "ArrowLeft") { pos = (pos - 1 + ordre.length) % ordre.length; afficher(); }
+    };
+    document.addEventListener("keydown", clavier);
+    afficher();
+  }
+
+  function vueQcm(zone, r, sauver) {
+    const qs = r.data.questions || [];
+    const L = "ABCDEF";
+    let n = 0, score = 0, erreurs = [], valide = false;
+    const fin = () => {
+      const s = r.suivi;
+      s.total = qs.length; s.dernier = score; s.meilleur = Math.max(s.meilleur || 0, score); sauver();
+      const pc = Math.round((score / qs.length) * 100);
+      zone.innerHTML = `<div class="rq card card-pad rq-fin">
+        <div class="rq-score ${pc >= 70 ? "bon" : pc >= 50 ? "moyen" : "faible"}"><b>${score} / ${qs.length}</b><span>${pc} %</span></div>
+        <p>${esc(T(pc >= 70 ? "Très bien, tu maîtrises ce cours !" : pc >= 50 ? "Pas mal : revois les questions ratées." : "Continue : relis le cours puis recommence."))}</p>
+        <p class="small muted">${esc(T("Meilleur score"))} : ${s.meilleur} / ${qs.length}</p>
+        ${erreurs.length ? `<details class="rq-err"><summary>${esc(T("Revoir mes erreurs"))} (${erreurs.length})</summary>${erreurs.map((i) => `
+          <div class="rq-err-q"><p dir="auto" data-i18n-skip><b>${esc(qs[i].question)}</b></p>
+          <p class="small" dir="auto" data-i18n-skip>✓ ${qs[i].bonnes.map((b) => `${L[b]}. ${esc(qs[i].propositions[b])}`).join(" · ")}</p>
+          <p class="small muted" dir="auto" data-i18n-skip>${esc(qs[i].explication)}</p></div>`).join("")}</details>` : ""}
+        <div class="form-actions"><button class="btn" data-a="refaire">${esc(T("Recommencer"))}</button>${erreurs.length ? `<button class="btn btn-soft" data-a="erreurs">${esc(T("Refaire mes erreurs"))}</button>` : ""}</div>
+      </div>`;
+      const errs = erreurs.slice();
+      $("[data-a=refaire]", zone).onclick = () => demarrer(qs.map((_, i) => i));
+      const be = $("[data-a=erreurs]", zone); if (be) be.onclick = () => demarrer(errs);
+    };
+    let liste = [];
+    const question = () => {
+      if (n >= liste.length) return fin();
+      const i = liste[n], q = qs[i];
+      valide = false;
+      zone.innerHTML = `<div class="rq card card-pad">
+        <div class="rq-top small muted"><span>${esc(T("Question"))} ${n + 1} / ${liste.length}</span><span>${esc(T("Score"))} : ${score}</span></div>
+        <div class="rq-prog"><i style="width:${(n / liste.length) * 100}%"></i></div>
+        <p class="rq-q" dir="auto" data-i18n-skip>${esc(q.question)}</p>
+        <p class="small muted">${esc(T("Une ou plusieurs réponses justes."))}</p>
+        <div class="rq-opts">${q.propositions.map((p, k) => `<label class="rq-opt"><input type="checkbox" value="${k}"><span class="rq-l">${L[k]}</span><span dir="auto" data-i18n-skip>${esc(p)}</span></label>`).join("")}</div>
+        <div class="rq-expl" hidden></div>
+        <div class="form-actions"><button class="btn" data-a="valider">${esc(T("Valider"))}</button></div>
+      </div>`;
+      const btn = $("[data-a=valider]", zone);
+      btn.onclick = () => {
+        if (!valide) {
+          const choisis = $$(".rq-opt input", zone).filter((x) => x.checked).map((x) => Number(x.value));
+          if (!choisis.length) return toast(T("Coche au moins une réponse."), true);
+          valide = true;
+          const juste = choisis.length === q.bonnes.length && choisis.every((c) => q.bonnes.includes(c));
+          if (juste) score++; else erreurs.push(i);
+          $$(".rq-opt", zone).forEach((lb, k) => {
+            const inp = $("input", lb); inp.disabled = true;
+            lb.classList.toggle("bonne", q.bonnes.includes(k));
+            lb.classList.toggle("fausse", inp.checked && !q.bonnes.includes(k));
+          });
+          const ex = $(".rq-expl", zone); ex.hidden = false;
+          ex.className = "rq-expl " + (juste ? "ok" : "ko");
+          ex.innerHTML = `<b>${esc(T(juste ? "Juste !" : "Pas tout à fait."))}</b> <span dir="auto" data-i18n-skip>${esc(q.explication)}</span>`;
+          btn.textContent = T(n + 1 < liste.length ? "Question suivante" : "Voir mon score");
+        } else { n++; question(); }
+      };
+    };
+    const demarrer = (ids) => { liste = ids; n = 0; score = 0; erreurs = []; question(); };
+    demarrer(qs.map((_, i) => i));
+  }
+
+  function vueCarte(zone, r) {
+    const d = r.data;
+    const COUL = ["#0f766e", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#0891b2", "#ca8a04", "#dc2626", "#4f46e5"];
+    const noeud = (n, niv) => `<li class="mm-n${niv}">
+      <span class="mm-l${n.enfants && n.enfants.length ? " has" : ""}" dir="auto" data-i18n-skip tabindex="0">${esc(n.titre)}</span>
+      ${n.enfants && n.enfants.length ? `<ul class="mm-kids">${n.enfants.map((e) => noeud(e, niv + 1)).join("")}</ul>` : ""}</li>`;
+    zone.innerHTML = `<div class="mm-bar">
+        <button type="button" class="chip" data-a="tout">${esc(T("Tout déplier"))}</button>
+        <button type="button" class="chip" data-a="replier">${esc(T("Replier"))}</button>
+        <button type="button" class="icon-btn" data-a="zout" aria-label="${esc(T("Dézoomer"))}">−</button>
+        <button type="button" class="icon-btn" data-a="zin" aria-label="${esc(T("Zoomer"))}">+</button>
+        <span class="small muted">${esc(T("Clique sur une notion pour la replier ou la déplier."))}</span>
+      </div>
+      <div class="mm-wrap" dir="ltr"><ul class="mm">
+        <li class="mm-n0"><span class="mm-l has" dir="auto" data-i18n-skip tabindex="0">${esc(d.titre || r.nom || "")}</span>
+          <ul class="mm-kids">${(d.branches || []).map((b, i) => noeud(b, 1).replace('<li class="mm-n1">', `<li class="mm-n1" style="--mm:${COUL[i % COUL.length]}">`)).join("")}</ul>
+        </li></ul></div>`;
+    const wrap = $(".mm-wrap", zone); let z = 1;
+    const basculer = (l) => { const li = l.closest("li"); if (li && $(":scope > .mm-kids", li)) li.classList.toggle("ferme"); };
+    wrap.onclick = (e) => { const l = e.target.closest(".mm-l.has"); if (l) basculer(l); };
+    wrap.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".mm-l.has")) { e.preventDefault(); basculer(e.target); } };
+    zone.querySelector(".mm-bar").onclick = (e) => {
+      const a = (e.target.closest("[data-a]") || {}).dataset?.a; if (!a) return;
+      if (a === "tout") $$(".ferme", wrap).forEach((x) => x.classList.remove("ferme"));
+      if (a === "replier") $$(".mm-n1", wrap).forEach((x) => { if ($(":scope > .mm-kids", x)) x.classList.add("ferme"); });
+      if (a === "zin") z = Math.min(1.6, z + 0.15);
+      if (a === "zout") z = Math.max(0.6, z - 0.15);
+      wrap.style.setProperty("--mmz", z);
+    };
   }
 
   function notFound() {
@@ -1707,7 +2013,7 @@
     $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === page));
     $("#nav").classList.remove("open");
     $("#menu-btn").setAttribute("aria-expanded", "false");
-    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité", fichier: "Document", notes: "Mes notes", assistant: "Assistant IA" };
+    const titles = { accueil: "Accueil", actualites: "Actualités", planning: "Planning", lecons: "Leçons", admin: "Espace admin", confidentialite: "Confidentialité", fichier: "Document", notes: "Mes notes", assistant: "Assistant IA", reviser: "Réviser" };
     document.title = T(`${titles[page] || "MedFMPC"} — ${CFG.nomSite}`);
     const u = Store.user();
     renderHeader();
@@ -1734,6 +2040,7 @@
       else if (page === "fichier") await pageFichier(parts[1]);
       else if (page === "notes") await pageNotes();
       else if (page === "assistant") pageAssistant();
+      else if (page === "reviser") await pageReviser(parts[1]);
       else notFound();
     } catch (e) {
       console.error(e);
@@ -1804,6 +2111,8 @@
     if (nn) nn.hidden = !(u && u.acces);
     const ni = $("#nav-ia");
     if (ni) ni.hidden = !(u && u.acces);
+    const nr = $("#nav-rev");
+    if (nr) nr.hidden = !(u && u.acces);
     const na = $("#nav-annee");
     if (na) {
       na.hidden = !(u && !u.full && u.acces);
