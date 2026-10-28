@@ -13,6 +13,7 @@ Plateforme de révision pour les étudiants de la **Faculté de Médecine et de 
 - **Annoter tes cours** : stylo, surligneur, zones de texte et gomme. Tes annotations sont enregistrées et visibles par toi seul.
 - **Mes notes** : un bloc-notes pour chaque cours, enregistré automatiquement.
 - **Assistant IA** : pose tes questions de cours, demande un résumé ou un QCM. Il peut lire le cours que tu as ouvert (20 questions par jour).
+- **Réviser** : à partir d'un cours du site ou de ton propre PDF, l'assistant te prépare des **flashcards**, des **QCM corrigés** et une **carte mentale**.
 - **Plannings** et **actualités** de la promo.
 - En **français, arabe et anglais**, avec un **mode sombre**, sur ordinateur et téléphone.
 
