@@ -56,7 +56,7 @@ window.APP_CONFIG = {
       nom: "Médecine",
       couleur: "#0f766e",
       annees: [
-        { annee: 1, label: "1ère année", semestres: [{ code: "S1", drive: "" }, { code: "S2", drive: "lié" }] },
+        { annee: 1, label: "1ère année", semestres: [{ code: "S1", drive: "lié" }, { code: "S2", drive: "lié" }] },
         { annee: 2, label: "2ème année", semestres: [{ code: "S3", drive: "lié" }, { code: "S4", drive: "" }] },
         { annee: 3, label: "3ème année", semestres: [{ code: "S5", drive: "" }, { code: "S6", drive: "" }] },
         { annee: 4, label: "4ème année", semestres: [{ code: "S7", drive: "" }, { code: "S8", drive: "" }] },
