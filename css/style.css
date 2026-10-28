@@ -884,3 +884,16 @@ body.no-scroll { overflow: hidden; }
 .viewer-notes { container-type: inline-size; }
 .vn-tabs button { white-space: nowrap; }
 @container (max-width: 400px) { .vn-tabs button { font-size: .8rem; padding: 7px 4px; gap: 4px; } .vn-tabs button svg { display: none; } }
+@media (max-width: 700px) {
+  .mm-wrap { padding: 14px 10px 20px; }
+  .mm li { display: block; }
+  .mm .mm-kids { margin-left: 12px; }
+  .mm-kids::before { display: none; }
+  .mm-kids > li { padding: .3em 0 .3em 18px; }
+  .mm-kids > li::before { top: calc(.3em + 1.05em); width: 16px; }
+  .mm-kids > li:first-child::after { top: 0; }
+  .mm-kids > li:last-child::after { bottom: auto; height: calc(.3em + 1.05em); }
+  .mm-kids > li:only-child::after { display: block; }
+  .mm-l { max-width: none; }
+  .mm-n0 > .mm-l { display: block; }
+}
