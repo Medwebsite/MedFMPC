@@ -389,6 +389,10 @@
     ["Voir mes notes", "عرض ملاحظاتي", "See my notes"],
     ["Retour au dossier", "العودة إلى المجلد", "Back to folder"],
     ["Aperçu du document", "معاينة المستند", "Document preview"],
+    ["Tu as été déconnecté", "تم تسجيل خروجك", "You've been signed out"],
+    ["Ton compte vient d'être ouvert sur un autre appareil. Un compte ne peut être utilisé que sur un seul appareil à la fois.", "تم فتح حسابك للتو على جهاز آخر. لا يمكن استعمال الحساب إلا على جهاز واحد في نفس الوقت.", "Your account was just opened on another device. An account can only be used on one device at a time."],
+    ["Si ce n'était pas toi, reconnecte-toi puis change ton mot de passe.", "إذا لم تكن أنت، أعد تسجيل الدخول ثم غيّر كلمة المرور.", "If it wasn't you, sign back in and change your password."],
+    ["Me reconnecter", "إعادة تسجيل الدخول", "Sign back in"],
     // Réviser
     ["Réviser", "مراجعة", "Revise"],
     ["Révision", "مراجعة", "Revision"],
