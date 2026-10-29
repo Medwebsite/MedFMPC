@@ -94,8 +94,40 @@
     let listeners = [];
     let currentUser = null;
 
+    // ---- Un compte = un seul appareil connecté à la fois ----
+    let connexionEnCours = false, expulse = false;
+    const nomAppareil = () => {
+      const ua = navigator.userAgent;
+      const nav = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Navigateur";
+      const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+      return nav + (os ? " · " + os : "");
+    };
+    // Cet appareil devient le seul autorisé ; les autres sont déconnectés
+    async function prendreSession() {
+      try { await sb.rpc("prendre_session", { appareil: nomAppareil() }); } catch (e) {}
+      try { await sb.auth.signOut({ scope: "others" }); } catch (e) {}
+    }
+    function expulser() {
+      expulse = true;
+      setTimeout(async () => {
+        try { await caches.delete("medfmpc-fichiers"); } catch (e) {}
+        try { await sb.auth.signOut({ scope: "local" }); } catch (e) {}
+        currentUser = null; listeners.forEach((f) => f(null));
+      }, 0);
+    }
+    async function verifierSession() {
+      if (!currentUser || connexionEnCours) return;
+      try { const { data } = await sb.rpc("session_etat"); if (data === "autre") expulser(); } catch (e) {}
+    }
+
     async function loadProfile(session) {
       if (!session) { currentUser = null; return null; }
+      if (!connexionEnCours) {
+        try {
+          const { data: etat } = await sb.rpc("session_etat");
+          if (etat === "autre") { currentUser = null; expulser(); return null; }
+        } catch (e) { /* hors ligne : on continue */ }
+      }
       const u = session.user;
       const [{ data }, ann, dem] = await Promise.all([
         sb.from("profiles").select("*").eq("id", u.id).maybeSingle(),
@@ -120,9 +152,16 @@
       demo: false,
       async init() {
         await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js");
+        // Connexion par un lien reçu par email (confirmation, mot de passe oublié) : cet appareil prend la place
+        const viaLien = /type=(recovery|signup|magiclink|invite|email_change)|access_token=/.test(location.hash) || /[?&]code=/.test(location.search);
+        if (viaLien) connexionEnCours = true;
         sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
         const { data } = await sb.auth.getSession();
+        if (viaLien && data.session) await prendreSession();
+        connexionEnCours = false;
         await loadProfile(data.session);
+        setInterval(verifierSession, 60000);
+        document.addEventListener("visibilitychange", () => { if (!document.hidden) verifierSession(); });
         sb.auth.onAuthStateChange(async (evt, session) => {
           const before = currentUser && currentUser.id;
           await loadProfile(session);
@@ -132,6 +171,7 @@
         });
       },
       user: () => currentUser,
+      expulse() { const e = expulse; expulse = false; return e; },
       onAuth(fn) { listeners.push(fn); },
       onRecovery(fn) { recoveryFn = fn; },
       async refreshUser() {
@@ -141,8 +181,12 @@
         return currentUser;
       },
       async signIn(email, password) {
-        const { error } = await sb.auth.signInWithPassword({ email, password });
-        if (error) throw new Error(traduire(error.message));
+        connexionEnCours = true;
+        try {
+          const { error } = await sb.auth.signInWithPassword({ email, password });
+          if (error) throw new Error(traduire(error.message));
+          await prendreSession();
+        } finally { connexionEnCours = false; }
         return this.refreshUser();
       },
       async signUp(email, password, nom) {
@@ -152,6 +196,7 @@
         });
         if (error) throw new Error(traduire(error.message));
         if (!data.session) return { confirm: true };
+        await prendreSession();
         await this.refreshUser();
         return { confirm: false };
       },
@@ -530,6 +575,7 @@
         try { currentUser = JSON.parse(sessionStorage.getItem(DEMO_KEY + "-user") || "null"); } catch (e) {}
       },
       user: () => currentUser,
+      expulse: () => false,
       onAuth(fn) { listeners.push(fn); },
       onRecovery() {},
       async refreshUser() { return currentUser; },
