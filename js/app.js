@@ -2164,7 +2164,13 @@
       main.innerHTML = emptyState("Connexion impossible", "Le site n'a pas pu joindre la base de données. " + esc(e.message));
       return;
     }
-    Store.onAuth(async () => { renderHeader(); await ensureSnapshot(); route(); });
+    Store.onAuth(async (u) => {
+      renderHeader(); await ensureSnapshot(); route();
+      // Compte ouvert sur un autre appareil : un compte = une seule personne
+      if (!u && Store.expulse && Store.expulse()) {
+        openModal(T("Tu as été déconnecté"), `<div class="expulse"><div class="expulse-ico">${I.lock}</div><p>${esc(T("Ton compte vient d'être ouvert sur un autre appareil. Un compte ne peut être utilisé que sur un seul appareil à la fois."))}</p><p class="small muted">${esc(T("Si ce n'était pas toi, reconnecte-toi puis change ton mot de passe."))}</p><div class="form-actions"><a class="btn" href="#/connexion" data-close>${esc(T("Me reconnecter"))}</a></div></div>`);
+      }
+    });
     Store.onRecovery(() => newPasswordForm());
     renderHeader();
     await ensureSnapshot();
